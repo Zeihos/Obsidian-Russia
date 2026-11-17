@@ -219,6 +219,11 @@ class SessionSecurityTest(unittest.TestCase):
                 status, _, body, _ = request(p, "/admin", cookie=active[0])
                 self.assertEqual(status, 200)
                 self.assertIn("Завершить другие сеансы".encode("utf-8"), body)
+                self.assertEqual(request(
+                    p, "/sessions/logout-all", "POST",
+                    {"csrf":"invalid"}, active[0],
+                )[0], 400)
+                self.assertEqual(request(p, "/admin", cookie=active[0])[0], 200)
                 status, _, _, _ = request(
                     p, "/sessions/close-others", "POST",
                     {"csrf":csrf(body)}, active[0],
