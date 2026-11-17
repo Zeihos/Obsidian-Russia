@@ -159,6 +159,29 @@ class SessionSecurityTest(unittest.TestCase):
                     self.assertEqual(status, 303)
                     self.assertTrue(headers["Location"].startswith("/login"))
 
+                    # A successful password change also invalidates all other sessions.
+                    status, _, body, cookies = request(p, "/login")
+                    self.assertEqual(status, 200)
+                    guest = cookie_of(cookies, cookie_name)
+                    status, _, _, cookies = request(
+                        p, "/login", "POST", {"csrf":csrf(body), **login}, guest,
+                    )
+                    self.assertEqual(status, 303)
+                    extra_session = cookie_of(cookies, cookie_name)
+                    status, _, body, _ = request(p, "/account", cookie=first)
+                    self.assertEqual(status, 200)
+                    fields = (
+                        {"csrf":csrf(body), "old_password":login["password"],
+                         "new_password":"ReplacementPassword123!"}
+                        if folder == "Сайт" else
+                        {"csrf":csrf(body), "old":login["password"],
+                         "password":"ReplacementPassword123!"}
+                    )
+                    status, _, _, _ = request(p, "/account/password", "POST", fields, first)
+                    self.assertEqual(status, 303)
+                    self.assertEqual(request(p, "/account", cookie=first)[0], 200)
+                    self.assertEqual(request(p, "/account", cookie=extra_session)[0], 303)
+
                     status, _, body, _ = request(p, "/account", cookie=first)
                     self.assertEqual(status, 200)
                     status, _, _, _ = request(
