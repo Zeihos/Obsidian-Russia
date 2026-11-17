@@ -1,6 +1,7 @@
 """OBSIDIAN RUSSIA website — Python standard library + SQLite.
 Run: python server.py (Python 3.10+). Admin: python manage.py.
 """
+import sys
 import os, re, json, time, hmac, secrets, sqlite3, threading, hashlib, logging, mimetypes
 from collections import defaultdict, deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -348,6 +349,9 @@ class Handler(BaseHTTPRequestHandler):
             self.error_page(404,'НЕ НАЙДЕНО','Неизвестный обработчик формы.')
 
 def main():
+    # Preserve readable terminal output on Windows and avoid cp1252 startup failures.
+    if sys.stdout is not None and hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(errors='backslashreplace')
     logging.basicConfig(level=logging.INFO,format='%(asctime)s | %(levelname)s | %(message)s')
     init_db()
     with connect() as c:
