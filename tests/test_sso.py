@@ -133,6 +133,7 @@ class ForumSSOTests(unittest.TestCase):
                 # Site issues a short-lived code; forum exchanges it server-side.
                 status, headers, _ = http(web_port, ret, cookie=web_cookie)
                 self.assertEqual(status, 303)
+                self.assertEqual(headers.get("Cache-Control"), "no-store")
                 callback = urlsplit(headers["Location"])
                 self.assertEqual(callback.path, "/sso/callback")
                 params = parse_qs(callback.query)
