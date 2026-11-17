@@ -335,6 +335,14 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/logout':
                 c.execute('DELETE FROM sessions WHERE token_hash=?',(u['token_hash'],));c.commit()
                 return self.redirect('/',cookies=[self.cookie('obwiki_session','',True)])
+            if path=='/sessions/close-others':
+                c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(u['id'],u['token_hash']))
+                db.audit(c,u['id'],'close_other_sessions',u['id']);c.commit()
+                return self.redirect('/admin?info='+quote('Другие сеансы Wiki закрыты'))
+            if path=='/sessions/logout-all':
+                c.execute('DELETE FROM sessions WHERE user_id=?',(u['id'],))
+                db.audit(c,u['id'],'logout_all_sessions',u['id']);c.commit()
+                return self.redirect('/',cookies=[self.cookie('obwiki_session','',True)])
             if path=='/admin/article/new' or re.fullmatch(r'/admin/article/\d+',path):
                 is_new=path.endswith('/new')
                 a=None if is_new else c.execute('SELECT * FROM articles WHERE id=?',(int(path.split('/')[-1]),)).fetchone()
