@@ -23,6 +23,7 @@ from urllib.parse import urlsplit,parse_qs
 
 import db
 import views as v
+import sso
 
 ROOT=Path(__file__).resolve().parent
 STATIC=(ROOT/'static').resolve()
@@ -183,6 +184,30 @@ class Handler(BaseHTTPRequestHandler):
             message=MESSAGES.get(args.get('message',[''])[0],'')
             page=positive(args.get('page',[1])[0])
             status=200
+            if path=='/sso/login':
+                if not sso.enabled():
+                    return self.error_page(404,'Единый вход пока не настроен.')
+                if user:
+                    return self.redirect('/account',token)
+                link=sso.start(c,sess['token_hash'])
+                return self.respond(b'',303,'text/plain; charset=utf-8',token,{'Location':link})
+            if path=='/sso/callback':
+                if not sso.enabled():
+                    return self.error_page(404,'Единый вход пока не настроен.')
+                state=args.get('state',[''])[0]
+                code=args.get('code',[''])[0]
+                if not sess or not sso.consume_state(c,state,sess['token_hash']):
+                    return self.error_page(400,'Неверный или просроченный запрос авторизации.')
+                c.commit()  # Consume state before contacting the website.
+                identity=sso.exchange(code)
+                if not identity:
+                    return self.error_page(401,'Не удалось подтвердить единый вход. Попробуй снова.')
+                user_id=sso.forum_user(c,*identity)
+                if not user_id:
+                    return self.error_page(403,'Учётная запись недоступна.')
+                c.execute('DELETE FROM sessions WHERE token_hash=?',(sess['token_hash'],))
+                new_token=db.create_session(c,user_id)
+                return self.redirect('/account?message=welcome',new_token)
             if path=='/':title='Главная';body=v.home(c,user)
             elif path=='/latest' or path=='/search':
                 q=(args.get('q',[''])[0] if path=='/search' else '').strip()[:80]
@@ -246,6 +271,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path=='/login':
                 if user:return self.redirect('/account',token)
                 title='Вход';body=v.auth_form('login',csrf)
+                if sso.enabled():
+                    body='<div class="panel form-card"><a class="btn btn-red" href="/sso/login">Войти через аккаунт OBSIDIAN RUSSIA</a><p>Без передачи пароля форуму. Существующий аккаунт форума останется отдельным.</p></div>'+body
             elif path=='/register':
                 if user:return self.redirect('/account',token)
                 title='Регистрация';body=v.auth_form('register',csrf)
@@ -329,6 +356,8 @@ class Handler(BaseHTTPRequestHandler):
             if not user:return self.redirect('/login?message=login')
             uid=user['user_id'];staff=user['role'] in ('admin','moderator');admin=user['role']=='admin'
             if path=='/account/password':
+                if c.execute('SELECT 1 FROM sso_accounts WHERE user_id=?',(uid,)).fetchone():
+                    return self.error_page(403,'Пароль связанного аккаунта изменяется на основном сайте.')
                 if not ratelimit(ip,'pass',10,900):return self.redirect('/account?message=rate')
                 old=f.get('old','');pw=f.get('password','')
                 r=c.execute('SELECT password_hash FROM users WHERE id=?',(uid,)).fetchone()

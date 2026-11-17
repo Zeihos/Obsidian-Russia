@@ -10,6 +10,7 @@ from http.cookies import SimpleCookie
 from html import escape
 from db import init_db, connect, now, new_token, get_session, hash_password, check_password, setting, settings
 import views as v
+import sso
 
 ROOT=Path(__file__).resolve().parent
 STATIC=(ROOT/'static').resolve()
@@ -164,6 +165,19 @@ class Handler(BaseHTTPRequestHandler):
                       'limit':'Слишком много попыток. Повтори позже.','login':'Войди в аккаунт, чтобы продолжить.'}
             message=statuses.get(qs.get('message',[''])[0],'')
             status=200
+            if path=='/sso/authorize':
+                if not sso.enabled():
+                    return self.error_page(404,'НЕ НАЙДЕНО','Единый вход не настроен.')
+                client=qs.get('client',[''])[0]
+                state=qs.get('state',[''])[0]
+                target=sso.authorization_path(client,state)
+                if not target:
+                    return self.error_page(400,'НЕКОРРЕКТНЫЙ ЗАПРОС','Недействительный запрос авторизации.')
+                if not user:
+                    return self.redirect('/login?'+urlencode({'next':target}),new_cookie)
+                code=sso.issue_code(c,user['user_id'])
+                callback=sso.CALLBACK+'?'+urlencode({'state':state,'code':code})
+                return self.response(b'',303,'text/plain; charset=utf-8',new_cookie,{'Location':callback})
             if path=='/':title='Главная';body=v.home(c,config)
             elif path=='/about':title='О проекте';body=v.about_page(config)
             elif path=='/play':title='Начать играть';body=v.play_page(config)
@@ -178,14 +192,19 @@ class Handler(BaseHTTPRequestHandler):
             elif path=='/privacy':title='Конфиденциальность';body=v.privacy_page(config)
             elif path=='/contact':title='Поддержка';body=v.contact_page(user,csrf)
             elif path=='/login':
-                if user:return self.redirect('/account',new_cookie)
-                title='Вход';body=v.auth_page('login',csrf)
+                ret=sso.login_return(qs.get('next',[''])[0])
+                if user:return self.redirect(ret or '/account',new_cookie)
+                title='Вход';body=v.auth_page('login',csrf,next_url=ret)
             elif path=='/register':
-                if user:return self.redirect('/account',new_cookie)
-                title='Регистрация';body=v.auth_page('register',csrf)
+                ret=sso.login_return(qs.get('next',[''])[0])
+                if user:return self.redirect(ret or '/account',new_cookie)
+                title='Регистрация';body=v.auth_page('register',csrf,next_url=ret)
             elif path=='/account':
                 if not user:return self.redirect('/login?message=login',new_cookie)
                 title='Личный кабинет';body=v.account_page(c,user,csrf)
+                if sso.enabled():
+                    forum_login=sso.CALLBACK.removesuffix('/sso/callback')+'/sso/login'
+                    body+='<section class="section compact"><div class="shell"><div class="panel dashboard-panel"><h2>ФОРУМ OBSIDIAN RUSSIA</h2><p>Войти на форум можно через этот аккаунт сайта, без повторного ввода пароля.</p><a class="btn btn-primary" href="'+v.E(forum_login)+'">Войти на форум</a></div></div></section>'
             elif path=='/admin':
                 if not user or user['role']!='admin':return self.redirect('/login?message=login' if not user else '/account',new_cookie)
                 tab=qs.get('tab',['overview'])[0]
@@ -217,6 +236,15 @@ class Handler(BaseHTTPRequestHandler):
     def handle_post(self):
         path=urlsplit(self.path).path
         f=self.form()
+        if path=='/sso/token':
+            if not allowed(self.client_ip(),'sso_token',50,60):
+                return self.response('{"error":"unauthorized"}',401,'application/json; charset=utf-8')
+            with connect() as c:
+                identity=sso.redeem_code(c,f.get('client_id',''),f.get('client_secret',''),f.get('code',''))
+                if identity:
+                    c.commit()
+                    return self.response(json.dumps(identity,ensure_ascii=False),200,'application/json; charset=utf-8')
+                return self.response('{"error":"unauthorized"}',401,'application/json; charset=utf-8')
         with connect() as c:
             self._db_connection=c
             session,_=self.session_from_request(c)
@@ -235,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.redirect('/login?message=error')
                 c.execute('DELETE FROM sessions WHERE token_hash=?',(session['token_hash'],))
                 token=new_token(c,u['id'])
-                return self.redirect('/account?message=welcome',token)
+                return self.redirect(sso.login_return(f.get('next','')) or '/account?message=welcome',token)
             if path=='/register':
                 if not allowed(client,'register',5,3600):return self.redirect('/register?message=limit')
                 uname=f.get('username','').strip();email=f.get('email','').lower().strip();pw=f.get('password','');pw2=f.get('password2','')
@@ -246,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
                 cur=c.execute('INSERT INTO users(username,email,password_hash,role,created_at) VALUES(?,?,?,?,?)',(uname,email,hash_password(pw),'user',now()))
                 c.execute('DELETE FROM sessions WHERE token_hash=?',(session['token_hash'],))
                 token=new_token(c,cur.lastrowid)
-                return self.redirect('/account?message=welcome',token)
+                return self.redirect(sso.login_return(f.get('next','')) or '/account?message=welcome',token)
             if path=='/logout':
                 c.execute('DELETE FROM sessions WHERE token_hash=?',(session['token_hash'],))
                 return self.redirect('/?message=bye','')

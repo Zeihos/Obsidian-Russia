@@ -94,6 +94,12 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_threads_forum ON threads(forum_id,deleted,pinned,updated_at);
         CREATE INDEX IF NOT EXISTS idx_posts_thread ON posts(thread_id,deleted,created_at);
         CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status,created_at);
+        CREATE TABLE IF NOT EXISTS sso_states (
+         state_hash TEXT PRIMARY KEY, session_hash TEXT NOT NULL, expires_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS sso_accounts (
+         provider_sub TEXT PRIMARY KEY, user_id INTEGER NOT NULL UNIQUE
+           REFERENCES users(id) ON DELETE CASCADE);
+        CREATE INDEX IF NOT EXISTS idx_sso_states_expiry ON sso_states(expires_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
         CREATE INDEX IF NOT EXISTS idx_follows_thread ON follows(thread_id);
         ''')
