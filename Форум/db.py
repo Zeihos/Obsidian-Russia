@@ -124,6 +124,8 @@ def verify_password(value, encoded):
     except (ValueError,TypeError):return False
 
 def create_session(c,user_id=None):
+    # Keep expired anonymous/registered sessions from growing without bound.
+    c.execute('DELETE FROM sessions WHERE expires_at<=?', (now(),))
     token=secrets.token_urlsafe(40)
     expires=(datetime.now(timezone.utc)+timedelta(days=7)).isoformat(timespec='seconds')
     c.execute('INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES (?,?,?,?)',(

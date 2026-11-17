@@ -110,6 +110,8 @@ def check_password(password, encoded):
     except (ValueError,TypeError): return False
 
 def new_token(c, user_id=None):
+    # Anonymous sessions are created during ordinary browsing: purge expired rows.
+    c.execute('DELETE FROM sessions WHERE expires_at<=?', (now(),))
     token=secrets.token_urlsafe(36)
     csrf=secrets.token_urlsafe(24)
     expiry=(datetime.datetime.now(UTC)+datetime.timedelta(days=7)).isoformat(timespec='seconds')

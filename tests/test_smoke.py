@@ -85,14 +85,18 @@ class ServiceSmokeTest(unittest.TestCase):
                     self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
                     self.assertIn("Content-Security-Policy", headers)
 
-                    status, _, css = get(base + "/static/style.css")
+                    status, static_headers, css = get(base + "/static/style.css")
                     self.assertEqual(status, 200)
                     self.assertGreater(len(css), 100)
+                    self.assertIn("public", static_headers.get("Cache-Control", ""))
 
                     if name == "site":
-                        status, _, response = get(base + "/api/status")
+                        status, headers, response = get(base + "/api/status")
                         self.assertEqual(status, 200)
-                        self.assertIn("servers", json.loads(response))
+                        payload = json.loads(response)
+                        self.assertIn("servers", payload)
+                        self.assertEqual(payload["source"], "admin_manual")
+                        self.assertEqual(headers.get("Cache-Control"), "no-store")
 
                         # Backup must include WAL transactions while server is running.
                         subprocess.run(

@@ -80,7 +80,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
         self.send_header('Content-Security-Policy',"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
         if SECURE:self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
-        self.send_header('Cache-Control','no-store' if content.startswith('text/html') else 'public, max-age=3600')
+        # Cache only versioned/public static resources, never SSO, sessions or API responses.
+        is_static = urlsplit(self.path).path.startswith('/static/')
+        self.send_header('Cache-Control','public, max-age=3600' if is_static and status == 200 else 'no-store')
         if cookie is not None:
             extra_opts='; Secure' if SECURE else ''
             self.send_header('Set-Cookie',f'or_session={cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age={7*86400}{extra_opts}' if cookie else f'or_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{extra_opts}')
@@ -149,7 +151,9 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/status':
             with connect() as c:
                 servers=[dict(s) for s in c.execute('SELECT id,name,address,online,capacity,status,updated_at FROM servers ORDER BY id')]
-            return self.response(json.dumps({'servers':servers,'source':'admin_manual','updated_at':now()},ensure_ascii=False),200,'application/json; charset=utf-8')
+            # Report the most recent admin update, not the request time as data freshness.
+            last_update=max((item['updated_at'] for item in servers if item['updated_at']),default=None)
+            return self.response(json.dumps({'servers':servers,'source':'admin_manual','updated_at':last_update},ensure_ascii=False),200,'application/json; charset=utf-8')
         if path=='/api/news':
             with connect() as c:
                 articles=[dict(n) for n in c.execute('SELECT id,title,excerpt,category,created_at FROM news WHERE published=1 ORDER BY created_at DESC,id DESC LIMIT 30')]
