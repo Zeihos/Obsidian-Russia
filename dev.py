@@ -154,6 +154,8 @@ def manage(command: str, name: str) -> int:
 
 
 def main() -> int:
+    if sys.stdout is not None and hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(errors='backslashreplace')
     if sys.version_info < (3, 12):
         print("Python 3.12+ is required to run all three services.", file=sys.stderr)
         return 2
