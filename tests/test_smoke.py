@@ -116,6 +116,8 @@ class ServiceSmokeTest(unittest.TestCase):
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
 
 
 if __name__ == "__main__":
