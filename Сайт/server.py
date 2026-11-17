@@ -151,7 +151,9 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/status':
             with connect() as c:
                 servers=[dict(s) for s in c.execute('SELECT id,name,address,online,capacity,status,updated_at FROM servers ORDER BY id')]
-            return self.response(json.dumps({'servers':servers,'source':'admin_manual','updated_at':now()},ensure_ascii=False),200,'application/json; charset=utf-8')
+            # Report the most recent admin update, not the request time as data freshness.
+            last_update=max((item['updated_at'] for item in servers if item['updated_at']),default=None)
+            return self.response(json.dumps({'servers':servers,'source':'admin_manual','updated_at':last_update},ensure_ascii=False),200,'application/json; charset=utf-8')
         if path=='/api/news':
             with connect() as c:
                 articles=[dict(n) for n in c.execute('SELECT id,title,excerpt,category,created_at FROM news WHERE published=1 ORDER BY created_at DESC,id DESC LIMIT 30')]
