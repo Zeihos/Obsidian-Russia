@@ -46,6 +46,7 @@ MESSAGES={
  'deleted':'Публикация удалена.',
  'reported':'Жалоба отправлена команде модерации.',
  'subscribed':'Подписка на тему обновлена.',
+  'sessions':'Другие входы на форум завершены.',
  'error':'Не удалось выполнить действие. Проверь данные и повтори попытку.',
  'exists':'Этот логин или email уже зарегистрирован.',
  'password':'Неверный логин или пароль.',
@@ -356,6 +357,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect('/?message=bye','')
             if not user:return self.redirect('/login?message=login')
             uid=user['user_id'];staff=user['role'] in ('admin','moderator');admin=user['role']=='admin'
+            if path=='/account/sessions/close-others':
+                c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(uid,s['token_hash']))
+                db.audit(c,uid,'close_other_sessions',uid)
+                return self.redirect('/account?message=sessions')
+            if path=='/account/sessions/logout-all':
+                c.execute('DELETE FROM sessions WHERE user_id=?',(uid,))
+                db.audit(c,uid,'logout_all_sessions',uid)
+                return self.redirect('/?message=bye','')
             if path=='/account/password':
                 if c.execute('SELECT 1 FROM sso_accounts WHERE user_id=?',(uid,)).fetchone():
                     return self.error_page(403,'Пароль связанного аккаунта изменяется на основном сайте.')
