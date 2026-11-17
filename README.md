@@ -28,9 +28,10 @@ python dev.py admin forum
 python dev.py admin wiki
 ```
 
-Резервные копии форума и Wiki:
+Резервные копии всех трёх сервисов:
 
 ```bash
+python dev.py backup site
 python dev.py backup forum
 python dev.py backup wiki
 ```
