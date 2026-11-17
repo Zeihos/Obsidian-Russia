@@ -27,7 +27,7 @@ class RepositoryHygieneTest(unittest.TestCase):
                 or ".runtime" in parts
                 or "data" in parts
                 or ("static" in parts and "uploads" in parts)
-                or base.endswith((".pyc", ".pyo", ".sqlite3", ".sqlite3-wal", ".sqlite3-shm", ".db"))
+                or base.endswith((".pyc", ".pyo", ".sqlite3", ".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal", ".sqlite", ".sqlite-wal", ".sqlite-shm", ".sqlite-journal", ".db", ".db-wal", ".db-shm", ".db-journal", ".pem", ".key"))
                 or (base.startswith(".env") and base != ".env.example")
                 or (len(parts) == 1 and base.endswith((".rar", ".zip", ".jpg", ".png")))
             ):
