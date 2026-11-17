@@ -5,6 +5,7 @@ Each application uses a new temporary SQLite directory.
 """
 import json
 import os
+import sqlite3
 from pathlib import Path
 import socket
 import subprocess
@@ -89,6 +90,17 @@ class ServiceSmokeTest(unittest.TestCase):
                         status, _, response = get(base + "/api/status")
                         self.assertEqual(status, 200)
                         self.assertIn("servers", json.loads(response))
+
+                        # Backup must include WAL transactions while server is running.
+                        subprocess.run(
+                            [sys.executable, "manage.py", "backup"],
+                            cwd=ROOT / folder, env=env, check=True,
+                            stdout=subprocess.DEVNULL,
+                        )
+                        snapshots = list((Path(temp) / "database" / "backups").glob("*.sqlite3"))
+                        self.assertEqual(len(snapshots), 1)
+                        with sqlite3.connect(snapshots[0]) as copy:
+                            self.assertGreaterEqual(copy.execute("SELECT count(*) FROM servers").fetchone()[0], 1)
                     if name == "wiki":
                         status, _, response = get(base + "/api/stats")
                         self.assertEqual(status, 200)
