@@ -1,0 +1,6 @@
+# Replace obsidian.example.com with your actual domain.
+# Caddy automatically provisions HTTPS certificates.
+obsidian.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}
