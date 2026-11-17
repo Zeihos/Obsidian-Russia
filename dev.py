@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from pathlib import Path
 import subprocess
 import sys
@@ -59,8 +60,23 @@ def wait_ready(name: str, process: subprocess.Popen, port: int, health: str) -> 
 def run_all() -> int:
     processes = []
     try:
+        site_port = settings("site")[3]
+        forum_port = settings("forum")[3]
+        provider_secret = os.environ.get("OBSIDIAN_SSO_FORUM_SECRET")
+        client_secret = os.environ.get("OBFORUM_SSO_CLIENT_SECRET")
+        if provider_secret and client_secret and provider_secret != client_secret:
+            raise ValueError("Site and forum SSO secrets do not match.")
+        shared_secret = provider_secret or client_secret or secrets.token_urlsafe(48)
+        if len(shared_secret) < 32:
+            raise ValueError("Forum SSO shared secret must be at least 32 characters.")
         for name in SERVICES:
             folder, script, env, port, health = settings(name)
+            if name == "site":
+                env["OBSIDIAN_SSO_FORUM_SECRET"] = shared_secret
+                env.setdefault("OBSIDIAN_SSO_FORUM_CALLBACK", f"http://127.0.0.1:{forum_port}/sso/callback")
+            elif name == "forum":
+                env["OBFORUM_SSO_CLIENT_SECRET"] = shared_secret
+                env.setdefault("OBFORUM_SSO_ISSUER", f"http://127.0.0.1:{site_port}")
             proc = subprocess.Popen([sys.executable, script], cwd=folder, env=env)
             processes.append((name, proc))
             wait_ready(name, proc, port, health)
