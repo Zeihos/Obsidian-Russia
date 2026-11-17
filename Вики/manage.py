@@ -4,6 +4,10 @@ from datetime import datetime
 from pathlib import Path
 import db
 
+# Prevent Windows cp1252 consoles from crashing on Cyrillic status messages.
+if sys.stdout is not None and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='backslashreplace')
+
 def admin():
     db.init_db()
     print('OBSIDIAN RUSSIA WIKI — создание / обновление администратора')
