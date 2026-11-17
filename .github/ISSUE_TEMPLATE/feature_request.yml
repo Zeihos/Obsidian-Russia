@@ -1,0 +1,36 @@
+name: "Предложение по развитию"
+description: "Предложить новую возможность или улучшение"
+title: "[Идея] "
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: "К чему относится идея?"
+      options:
+        - "Основной сайт"
+        - "Форум"
+        - "Wiki"
+        - "Интеграция аккаунтов"
+        - "Инфраструктура"
+        - "Дизайн"
+        - "Другое"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Какую проблему это решает?"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Как должно работать?"
+      description: "Опишите поведение и пользу для игроков или команды."
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: "Дополнительные материалы"
+      description: "Ссылки, макеты, примеры или ограничения."
