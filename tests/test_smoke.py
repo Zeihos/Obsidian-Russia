@@ -6,6 +6,7 @@ Each application uses a new temporary SQLite directory.
 import json
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 import socket
 import subprocess
@@ -101,7 +102,7 @@ class ServiceSmokeTest(unittest.TestCase):
                         )
                         snapshots = list((Path(temp) / "database" / "backups").glob("*.sqlite3"))
                         self.assertEqual(len(snapshots), 1)
-                        with sqlite3.connect(snapshots[0]) as copy:
+                        with closing(sqlite3.connect(snapshots[0])) as copy:
                             self.assertGreaterEqual(copy.execute("SELECT count(*) FROM servers").fetchone()[0], 1)
                     if name == "wiki":
                         status, _, response = get(base + "/api/stats")
