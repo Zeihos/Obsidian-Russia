@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
             csrf=session['csrf']
             config=settings(c)
             statuses={'saved':'Изменения сохранены.','created':'Запись создана.','deleted':'Запись удалена.',
-                      'ticket':'Обращение отправлено.','password':'Пароль обновлён.','bye':'Вы вышли из аккаунта.',
+                      'ticket':'Обращение отправлено.','password':'Пароль обновлён.','bye':'Вы вышли из аккаунта.','sessions':'Другие сеансы сайта завершены.',
                       'welcome':'Добро пожаловать!','error':'Не удалось выполнить действие. Проверь введённые данные.',
                       'limit':'Слишком много попыток. Повтори позже.','login':'Войди в аккаунт, чтобы продолжить.'}
             message=statuses.get(qs.get('message',[''])[0],'')
@@ -284,6 +284,12 @@ class Handler(BaseHTTPRequestHandler):
                 c.execute('DELETE FROM sessions WHERE token_hash=?',(session['token_hash'],))
                 return self.redirect('/?message=bye','')
             if not user:return self.redirect('/login?message=login')
+            if path=='/account/sessions/close-others':
+                c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(user['user_id'],session['token_hash']))
+                return self.redirect('/account?message=sessions')
+            if path=='/account/sessions/logout-all':
+                c.execute('DELETE FROM sessions WHERE user_id=?',(user['user_id'],))
+                return self.redirect('/?message=bye','')
             if path=='/account/password':
                 if not allowed(client,'password',8,900):return self.redirect('/account?message=limit')
                 pw=f.get('old_password','');new_pw=f.get('new_password','')

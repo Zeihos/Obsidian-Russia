@@ -3,6 +3,7 @@ from html import escape
 from datetime import datetime
 from urllib.parse import quote
 import re
+import db
 
 E=lambda x: escape(str(x if x is not None else ''),quote=True)
 
@@ -174,7 +175,9 @@ def account(c,user,csrf):
     linked=c.execute('SELECT 1 FROM sso_accounts WHERE user_id=?',(user['user_id'],)).fetchone()
     password_area=('<p class="helper">Аккаунт связан с OBSIDIAN RUSSIA. Пароль изменяется на основном сайте, а не на форуме.</p>' if linked else f'<form action="/account/password" method="post">{csrf_input(csrf)}<label>Текущий пароль<input type="password" name="old" required></label><label>Новый пароль (10+ символов)<input type="password" name="password" minlength="10" maxlength="128" required></label><button class="btn btn-red">Сменить пароль</button></form>')
     email_display='Учётная запись OBSIDIAN RUSSIA' if linked else 'Email: '+E(user['email'])
-    return f'''{anti_crumbs(crumbs=[('Мой профиль','')])}<div class="profile-header">{avatar(user['username'],user['role'],'avatar-xl')}<div><span class="eyebrow red-text">ЛИЧНЫЙ КАБИНЕТ</span><h1>{E(user['username'])}</h1><div class="profile-meta">{role_label(user['role'])} · На форуме с {date(user['joined_at'])}</div></div>{admin}</div><div class="account-grid"><div class="panel form-card"><h2>НАСТРОЙКИ АККАУНТА</h2><p class="helper">{email_display}</p>{password_area}<form method="post" action="/logout" class="logout-form">{csrf_input(csrf)}<button class="btn btn-outline">Выйти из аккаунта</button></form></div><div class="panel dashboard-list"><h2>МОИ ТЕМЫ</h2>{threads}</div><div class="panel dashboard-list"><h2>ПОДПИСКИ</h2>{following}</div></div>'''
+    active_sessions=c.execute('SELECT COUNT(*) FROM sessions WHERE user_id=? AND expires_at>?',(user['user_id'],db.now())).fetchone()[0]
+    session_controls=f'''<div class="panel form-card"><h2>АКТИВНЫЕ СЕАНСЫ</h2><p class="helper">Входов на форум: <strong>{active_sessions}</strong></p><form method="post" action="/account/sessions/close-others">{csrf_input(csrf)}<button class="btn btn-outline">Завершить другие сеансы</button></form><form method="post" action="/account/sessions/logout-all">{csrf_input(csrf)}<button class="btn btn-outline">Выйти на всех устройствах</button></form><p class="helper">Это закрывает сеансы форума, но не сайта и не Wiki.</p></div>'''
+    return f'''{anti_crumbs(crumbs=[('Мой профиль','')])}<div class="profile-header">{avatar(user['username'],user['role'],'avatar-xl')}<div><span class="eyebrow red-text">ЛИЧНЫЙ КАБИНЕТ</span><h1>{E(user['username'])}</h1><div class="profile-meta">{role_label(user['role'])} · На форуме с {date(user['joined_at'])}</div></div>{admin}</div><div class="account-grid"><div class="panel form-card"><h2>НАСТРОЙКИ АККАУНТА</h2><p class="helper">{email_display}</p>{password_area}<form method="post" action="/logout" class="logout-form">{csrf_input(csrf)}<button class="btn btn-outline">Выйти из аккаунта</button></form></div>{session_controls}<div class="panel dashboard-list"><h2>МОИ ТЕМЫ</h2>{threads}</div><div class="panel dashboard-list"><h2>ПОДПИСКИ</h2>{following}</div></div>'''
 
 def member_list(c):
     users=c.execute('SELECT id,username,role,joined_at FROM users WHERE banned=0 ORDER BY joined_at DESC,id DESC LIMIT 100').fetchall()
