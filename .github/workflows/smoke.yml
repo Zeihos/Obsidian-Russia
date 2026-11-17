@@ -1,0 +1,25 @@
+name: Python smoke tests
+
+on:
+  push:
+    branches: [main, "dev/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile source files
+        run: python -m compileall -q "Сайт" "Форум" "Вики" dev.py tests
+      - name: Run isolated HTTP smoke checks
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
