@@ -4,7 +4,7 @@
 Usage:
     python dev.py run
     python dev.py admin site|forum|wiki
-    python dev.py backup forum|wiki
+    python dev.py backup site|forum|wiki
 
 Each service uses an isolated .runtime/<name>/ SQLite directory. No third-party
 packages are needed. This launcher is for local development, not production.
@@ -91,11 +91,8 @@ def run_all() -> int:
 
 def manage(command: str, name: str) -> int:
     folder, _, env, _, _ = settings(name)
-    if command == "backup" and name == "site":
-        print("The site does not have a backup command; back up its SQLite database separately.", file=sys.stderr)
-        return 2
     args = [sys.executable, "manage.py"]
-    if name != "site":
+    if name != "site" or command == "backup":
         args.append(command)
     return subprocess.call(args, cwd=folder, env=env)
 
@@ -109,7 +106,7 @@ def main() -> int:
         return run_all()
     if len(args) == 2 and args[0] == "admin" and args[1] in SERVICES:
         return manage(*args)
-    if len(args) == 2 and args[0] == "backup" and args[1] in ("forum", "wiki"):
+    if len(args) == 2 and args[0] == "backup" and args[1] in SERVICES:
         return manage(*args)
     print(__doc__.strip())
     return 2
