@@ -5,6 +5,7 @@ Usage:
     python dev.py run
     python dev.py admin site|forum|wiki
     python dev.py backup site|forum|wiki
+    python dev.py doctor
 
 Each service uses an isolated .runtime/<name>/ SQLite directory. No third-party
 packages are needed. This launcher is for local development, not production.
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import secrets
 from pathlib import Path
 import subprocess
@@ -105,6 +107,44 @@ def run_all() -> int:
                 proc.wait()
 
 
+def doctor() -> int:
+    """Inspect local startup prerequisites without changing files or databases."""
+    failures = 0
+    used_ports = set()
+    print("OBSIDIAN RUSSIA — локальная диагностика")
+    for name in SERVICES:
+        try:
+            folder, script, env, port, _ = settings(name)
+        except (OSError, ValueError) as exc:
+            print(f"[ERROR] {name}: {exc}")
+            failures += 1
+            continue
+        required = [folder / script, folder / "db.py", folder / "static" / "style.css"]
+        missing = [str(p.relative_to(ROOT)) for p in required if not p.is_file()]
+        if missing:
+            print(f"[ERROR] {name}: отсутствуют {', '.join(missing)}")
+            failures += 1
+            continue
+        if port in used_ports:
+            print(f"[ERROR] {name}: повторяющийся порт {port}")
+            failures += 1
+            continue
+        used_ports.add(port)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                print(f"[ERROR] {name}: локальный порт {port} занят или недоступен")
+                failures += 1
+                continue
+        print(f"[OK] {name}: исходники на месте, порт {port} свободен")
+    if failures:
+        print(f"Диагностика: найдено проблем — {failures}.")
+        return 1
+    print("Проверка пройдена. Для запуска: python dev.py run")
+    return 0
+
+
 def manage(command: str, name: str) -> int:
     folder, _, env, _, _ = settings(name)
     args = [sys.executable, "manage.py"]
@@ -120,6 +160,8 @@ def main() -> int:
     args = sys.argv[1:]
     if args == ["run"] or not args:
         return run_all()
+    if args == ["doctor"]:
+        return doctor()
     if len(args) == 2 and args[0] == "admin" and args[1] in SERVICES:
         return manage(*args)
     if len(args) == 2 and args[0] == "backup" and args[1] in SERVICES:
