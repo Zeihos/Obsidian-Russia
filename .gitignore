@@ -1,0 +1,25 @@
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local application state. Never publish accounts, sessions or SQLite journals.
+**/data/
+.runtime/
+**/static/uploads/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# Secrets and machine-generated files
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
