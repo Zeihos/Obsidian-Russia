@@ -80,7 +80,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
         self.send_header('Content-Security-Policy',"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
         if SECURE:self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
-        self.send_header('Cache-Control','no-store' if content.startswith('text/html') else 'public, max-age=3600')
+        # Cache only versioned/public static resources, never SSO, sessions or API responses.
+        is_static = urlsplit(self.path).path.startswith('/static/')
+        self.send_header('Cache-Control','public, max-age=3600' if is_static and status == 200 else 'no-store')
         if cookie is not None:
             extra_opts='; Secure' if SECURE else ''
             self.send_header('Set-Cookie',f'or_session={cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age={7*86400}{extra_opts}' if cookie else f'or_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{extra_opts}')
