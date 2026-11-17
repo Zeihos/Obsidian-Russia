@@ -54,14 +54,16 @@ class ServiceSmokeTest(unittest.TestCase):
                     [sys.executable, script],
                     cwd=ROOT / folder,
                     env=env,
-                    stdout=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                 )
                 base = f"http://127.0.0.1:{port}"
                 try:
                     deadline = time.monotonic() + 20
                     while time.monotonic() < deadline:
-                        self.assertIsNone(proc.poll(), f"{name} exited early: {proc.returncode}")
+                        if proc.poll() is not None:
+                            detail = proc.stdout.read().decode("utf-8", "replace")[-5000:]
+                            self.fail(f"{name} exited early: {proc.returncode}\\n{detail}")
                         try:
                             status, _, raw = get(base + health)
                             if status == 200:
