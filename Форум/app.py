@@ -9,6 +9,7 @@ import json
 import logging
 import mimetypes
 import os
+import sys
 import re
 import secrets
 import sqlite3
@@ -502,6 +503,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Preserve readable terminal output on Windows and avoid cp1252 startup failures.
+    if sys.stdout is not None and hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(errors='backslashreplace')
     if not (1<=PORT<=65535):raise SystemExit('Некорректный порт.')
     db.init_db()
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')

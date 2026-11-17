@@ -1,25 +1,30 @@
-name: Python smoke tests
+name: Python checks
 
 on:
   push:
-    branches: [main, "dev/**"]
+    branches: [main, "dev/**", "chore/**"]
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Compile source files
         run: python -m compileall -q "Сайт" "Форум" "Вики" dev.py tests
-      - name: Run isolated HTTP smoke checks
+      - name: Run integration and repository tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v

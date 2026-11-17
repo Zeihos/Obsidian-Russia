@@ -6,6 +6,7 @@ Each application uses a new temporary SQLite directory.
 import json
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 import socket
 import subprocess
@@ -54,14 +55,16 @@ class ServiceSmokeTest(unittest.TestCase):
                     [sys.executable, script],
                     cwd=ROOT / folder,
                     env=env,
-                    stdout=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                 )
                 base = f"http://127.0.0.1:{port}"
                 try:
                     deadline = time.monotonic() + 20
                     while time.monotonic() < deadline:
-                        self.assertIsNone(proc.poll(), f"{name} exited early: {proc.returncode}")
+                        if proc.poll() is not None:
+                            detail = proc.stdout.read().decode("utf-8", "replace")[-5000:]
+                            self.fail(f"{name} exited early: {proc.returncode}\\n{detail}")
                         try:
                             status, _, raw = get(base + health)
                             if status == 200:
@@ -99,7 +102,7 @@ class ServiceSmokeTest(unittest.TestCase):
                         )
                         snapshots = list((Path(temp) / "database" / "backups").glob("*.sqlite3"))
                         self.assertEqual(len(snapshots), 1)
-                        with sqlite3.connect(snapshots[0]) as copy:
+                        with closing(sqlite3.connect(snapshots[0])) as copy:
                             self.assertGreaterEqual(copy.execute("SELECT count(*) FROM servers").fetchone()[0], 1)
                     if name == "wiki":
                         status, _, response = get(base + "/api/stats")
@@ -114,6 +117,8 @@ class ServiceSmokeTest(unittest.TestCase):
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
 
 
 if __name__ == "__main__":

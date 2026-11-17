@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 from db import DATA_DIR, connect, init_db, hash_password, now
 
 
+# Prevent Windows cp1252 consoles from crashing on Cyrillic status messages.
+if sys.stdout is not None and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='backslashreplace')
+
 def admin():
     init_db()
     print("OBSIDIAN RUSSIA — настройка администратора")

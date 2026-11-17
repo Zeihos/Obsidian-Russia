@@ -75,9 +75,9 @@ class ForumSSOTests(unittest.TestCase):
             })
             processes = [
                 subprocess.Popen([sys.executable, "server.py"], cwd=ROOT / "Сайт",
-                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT),
+                                 env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT),
                 subprocess.Popen([sys.executable, "app.py"], cwd=ROOT / "Форум",
-                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT),
+                                 env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT),
             ]
             try:
                 for server_port in (web_port, forum_port):
@@ -88,7 +88,9 @@ class ForumSSOTests(unittest.TestCase):
                                 break
                         except (OSError, TimeoutError):
                             if any(p.poll() is not None for p in processes):
-                                self.fail("Site or forum exited unexpectedly")
+                                exited = [p for p in processes if p.poll() is not None]
+                                errors = [p.stdout.read().decode("utf-8", "replace")[-5000:] for p in exited]
+                                self.fail("Site or forum exited unexpectedly: " + " | ".join(errors))
                             time.sleep(0.15)
                     else:
                         self.fail("Local service did not become healthy")
@@ -172,6 +174,8 @@ class ForumSSOTests(unittest.TestCase):
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
 
 
 if __name__ == "__main__":
