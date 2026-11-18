@@ -1,6 +1,7 @@
 """In-place SSO schema migrations must retain existing accounts and links."""
 import os
 from pathlib import Path
+from contextlib import closing
 import sqlite3
 import subprocess
 import sys
@@ -26,7 +27,7 @@ class LegacySSOMigrationTest(unittest.TestCase):
             path=Path(tmp)/"site"
             path.mkdir()
             dbfile=path/"obsidian.sqlite3"
-            with sqlite3.connect(dbfile) as conn:
+            with closing(sqlite3.connect(dbfile)) as conn, conn:
                 conn.execute("""
                     CREATE TABLE users(
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +45,7 @@ class LegacySSOMigrationTest(unittest.TestCase):
             env["OBSIDIAN_DATA_DIR"]=str(path)
             upgrade("Сайт",env)
             upgrade("Сайт",env)  # idempotence
-            with sqlite3.connect(dbfile) as conn:
+            with closing(sqlite3.connect(dbfile)) as conn, conn:
                 row=conn.execute(
                     "SELECT id,username,password_hash,auth_version FROM users WHERE id=17"
                 ).fetchone()
@@ -55,7 +56,7 @@ class LegacySSOMigrationTest(unittest.TestCase):
             path=Path(tmp)/"forum"
             path.mkdir()
             dbfile=path/"forum.sqlite3"
-            with sqlite3.connect(dbfile) as conn:
+            with closing(sqlite3.connect(dbfile)) as conn, conn:
                 conn.execute("""
                     CREATE TABLE sso_accounts(
                        provider_sub TEXT PRIMARY KEY,
@@ -68,7 +69,7 @@ class LegacySSOMigrationTest(unittest.TestCase):
             env["OBFORUM_DATA_DIR"]=str(path)
             upgrade("Форум",env)
             upgrade("Форум",env)
-            with sqlite3.connect(dbfile) as conn:
+            with closing(sqlite3.connect(dbfile)) as conn, conn:
                 row=conn.execute(
                     "SELECT provider_sub,user_id,auth_version FROM sso_accounts"
                 ).fetchone()
