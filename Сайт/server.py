@@ -241,6 +241,14 @@ class Handler(BaseHTTPRequestHandler):
     def handle_post(self):
         path=urlsplit(self.path).path
         f=self.form()
+        if path=='/sso/session-version':
+            if not allowed(self.client_ip(),'sso_version',120,60):
+                return self.response('{"error":"unauthorized"}',401,'application/json; charset=utf-8')
+            with connect() as c:
+                version=sso.identity_version(c,f.get('client_id',''),f.get('client_secret',''),f.get('sub',''))
+                if version is None:
+                    return self.response('{"error":"unauthorized"}',401,'application/json; charset=utf-8')
+                return self.response(json.dumps({'auth_version':version}),200,'application/json; charset=utf-8')
         if path=='/sso/token':
             if not allowed(self.client_ip(),'sso_token',50,60):
                 return self.response('{"error":"unauthorized"}',401,'application/json; charset=utf-8')
@@ -288,6 +296,9 @@ class Handler(BaseHTTPRequestHandler):
                 c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(user['user_id'],session['token_hash']))
                 return self.redirect('/account?message=sessions')
             if path=='/account/sessions/logout-all':
+                # Invalidate linked forum sessions as well as website sessions.
+                c.execute('UPDATE users SET auth_version=auth_version+1 WHERE id=?',(user['user_id'],))
+                c.execute('DELETE FROM sso_codes WHERE user_id=?',(user['user_id'],))
                 c.execute('DELETE FROM sessions WHERE user_id=?',(user['user_id'],))
                 return self.redirect('/?message=bye','')
             if path=='/account/password':
@@ -296,7 +307,8 @@ class Handler(BaseHTTPRequestHandler):
                 row=c.execute('SELECT password_hash FROM users WHERE id=?',(user['user_id'],)).fetchone()
                 if not row or not check_password(pw,row['password_hash']) or not 10<=len(new_pw)<=128:
                     return self.redirect('/account?message=error')
-                c.execute('UPDATE users SET password_hash=? WHERE id=?',(hash_password(new_pw),user['user_id']))
+                c.execute('UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?',(hash_password(new_pw),user['user_id']))
+                c.execute('DELETE FROM sso_codes WHERE user_id=?',(user['user_id'],))
                 c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(user['user_id'],session['token_hash']))
                 return self.redirect('/account?message=password')
             if path=='/contact':
