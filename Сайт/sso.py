@@ -72,8 +72,23 @@ def issue_code(c, user_id):
     return code
 
 
+def valid_client(client, secret):
+    return (enabled() and client == CLIENT and isinstance(secret, str)
+            and hmac.compare_digest(secret, SECRET))
+
+
+def identity_version(c, client, secret, sub):
+    """Authenticate server-to-server requests for the linked user's version."""
+    if not valid_client(client, secret) or not isinstance(sub, str):
+        return None
+    if not re.fullmatch(r"[1-9][0-9]{0,17}", sub):
+        return None
+    row = c.execute('SELECT auth_version FROM users WHERE id=?', (int(sub),)).fetchone()
+    return int(row['auth_version']) if row else None
+
+
 def redeem_code(c, client, secret, code):
-    if not enabled() or client != CLIENT or not hmac.compare_digest(secret, SECRET):
+    if not valid_client(client, secret):
         return None
     if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9_-]{30,128}", code):
         return None
@@ -84,7 +99,7 @@ def redeem_code(c, client, secret, code):
     ).fetchone()
     if not row:
         return None
-    user = c.execute("SELECT id,username FROM users WHERE id=?", (row["user_id"],)).fetchone()
+    user = c.execute("SELECT id,username,auth_version FROM users WHERE id=?", (row["user_id"],)).fetchone()
     if not user:
         return None
-    return {"sub": str(user["id"]), "username": user["username"]}
+    return {"sub": str(user["id"]), "username": user["username"], "auth_version": int(user["auth_version"])}

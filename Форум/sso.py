@@ -67,6 +67,32 @@ def consume_state(c, state, session_hash):
     return row is not None
 
 
+def _version(value):
+    # bool is an int in Python; reject JSON booleans and unreasonable values.
+    if type(value) is not int or not (0 <= value <= 2_147_483_647):
+        return None
+    return value
+
+
+def session_version(sub):
+    """Live check at the identity provider; fail closed when unreachable."""
+    if not enabled() or not isinstance(sub, str) or not re.fullmatch(r"[1-9][0-9]{0,17}", sub):
+        return None
+    data=urlencode({"client_id":CLIENT,"client_secret":SECRET,"sub":sub}).encode("ascii")
+    req=Request(
+        ISSUER.rstrip("/")+"/sso/session-version", data=data,
+        headers={"Content-Type":"application/x-www-form-urlencoded","Accept":"application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=2.5) as resp:
+            if resp.status!=200:
+                return None
+            return _version(json.loads(resp.read(1024).decode("utf-8")).get("auth_version"))
+    except (HTTPError,URLError,TimeoutError,OSError,ValueError,UnicodeError,AttributeError,TypeError):
+        return None
+
+
 def exchange(code):
     if not enabled() or not re.fullmatch(r"[A-Za-z0-9_-]{30,128}", code):
         return None
@@ -90,16 +116,27 @@ def exchange(code):
         return None
     if not isinstance(username, str) or not 3 <= len(username) <= 24:
         return None
-    return sub, username
+    version=_version(info.get("auth_version"))
+    if version is None:
+        return None
+    return sub, username, version
 
 
-def forum_user(c, sub, display_name):
+def forum_user(c, sub, display_name, version):
     linked = c.execute(
-        "SELECT u.id,u.banned FROM sso_accounts l JOIN users u ON u.id=l.user_id "
+        "SELECT u.id,u.banned,l.auth_version FROM sso_accounts l JOIN users u ON u.id=l.user_id "
         "WHERE l.provider_sub=?", (sub,)
     ).fetchone()
     if linked:
-        return None if linked["banned"] else linked["id"]
+        if linked["banned"]:
+            return None
+        # A password rotation must revoke all older forum cookies, even if
+        # the user logs in with SSO again before old cookies are presented.
+        if linked["auth_version"] != version:
+            c.execute("DELETE FROM sessions WHERE user_id=?", (linked["id"],))
+            c.execute("UPDATE sso_accounts SET auth_version=? WHERE provider_sub=?", (version, sub))
+            db.audit(c, linked["id"], "sso_auth_version_updated", "site")
+        return linked["id"]
 
     # We do not link old accounts by email: site email addresses are not verified.
     # Any local collision is resolved by a generated handle, not account takeover.
@@ -114,7 +151,7 @@ def forum_user(c, sub, display_name):
             "INSERT INTO users(username,email,password_hash,role,joined_at) VALUES(?,?,?,?,?)",
             (name, email, db.hash_password(secrets.token_urlsafe(48)), "member", db.now()),
         ).lastrowid
-        c.execute("INSERT INTO sso_accounts(provider_sub,user_id) VALUES(?,?)", (sub, user_id))
+        c.execute("INSERT INTO sso_accounts(provider_sub,user_id,auth_version) VALUES(?,?,?)", (sub, user_id, version))
         db.audit(c, user_id, "sso_signup", "obsidian-website")
         return user_id
     return None

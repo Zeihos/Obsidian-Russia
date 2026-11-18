@@ -36,6 +36,7 @@ def init_db():
            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
            email TEXT NOT NULL UNIQUE COLLATE NOCASE,
            password_hash TEXT NOT NULL,
+           auth_version INTEGER NOT NULL DEFAULT 0,
            role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
            created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sessions (
@@ -76,6 +77,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_sso_codes_expiry ON sso_codes(expires_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
         ''')
+        # Upgrade in-place: never recreate or overwrite existing user data.
+        user_columns={r['name'] for r in c.execute('PRAGMA table_info(users)')}
+        if 'auth_version' not in user_columns:
+            c.execute('ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0')
         defaults = {
           'vk':'https://vk.ru/obsidian_brussia',
           'telegram':'https://t.me/obsidian_brussia',

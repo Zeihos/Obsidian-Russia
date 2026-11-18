@@ -98,11 +98,16 @@ def init_db():
          state_hash TEXT PRIMARY KEY, session_hash TEXT NOT NULL, expires_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sso_accounts (
          provider_sub TEXT PRIMARY KEY, user_id INTEGER NOT NULL UNIQUE
-           REFERENCES users(id) ON DELETE CASCADE);
+           REFERENCES users(id) ON DELETE CASCADE,
+           auth_version INTEGER NOT NULL DEFAULT 0);
         CREATE INDEX IF NOT EXISTS idx_sso_states_expiry ON sso_states(expires_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
         CREATE INDEX IF NOT EXISTS idx_follows_thread ON follows(thread_id);
         ''')
+        # Existing SSO mappings are retained across schema upgrades.
+        sso_columns={r['name'] for r in c.execute('PRAGMA table_info(sso_accounts)')}
+        if 'auth_version' not in sso_columns:
+            c.execute('ALTER TABLE sso_accounts ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0')
         if c.execute('SELECT COUNT(*) FROM categories').fetchone()[0] == 0:
             for i, (title, description, forums) in enumerate(SECTIONS):
                 cid=c.execute('INSERT INTO categories(title,description,sort_order) VALUES (?,?,?)',(title,description,i)).lastrowid

@@ -165,6 +165,51 @@ class ForumSSOTests(unittest.TestCase):
                 })
                 self.assertEqual(status, 401)
 
+                # A website password change rotates the linked identity version:
+                # the old forum login must stop working on its next request.
+                status, _, body = http(web_port, "/account", cookie=web_cookie)
+                self.assertEqual(status, 200)
+                csrf = csrf_from(body)
+                status, _, _ = http(web_port, "/account/password", method="POST",
+                    cookie=web_cookie, data={
+                        "csrf": csrf,
+                        "old_password": "SsoPasswordTest123!",
+                        "new_password": "SsoPasswordChanged123!",
+                    })
+                self.assertEqual(status, 303)
+                status, headers, _ = http(forum_port, "/account", cookie=active_cookie)
+                self.assertEqual(status, 303)
+                self.assertTrue(headers["Location"].startswith("/login"))
+
+                # A fresh SSO login must reuse the mapped forum account, not
+                # create a second member or resurrect the revoked forum cookie.
+                status, forum_headers, _ = http(forum_port, "/sso/login", cookie=active_cookie)
+                self.assertEqual(status, 303)
+                forum_guest = cookie_of(forum_headers)
+                self.assertTrue(forum_guest.startswith("obforum_session="))
+                target = urlsplit(forum_headers["Location"])
+                status, headers, _ = http(web_port, target.path+"?"+target.query, cookie=web_cookie)
+                self.assertEqual(status, 303)
+                callback = urlsplit(headers["Location"])
+                status, headers, _ = http(forum_port, callback.path+"?"+callback.query, cookie=forum_guest)
+                self.assertEqual(status, 303)
+                reauthorized_cookie = cookie_of(headers)
+                status, _, body = http(forum_port, "/account", cookie=reauthorized_cookie)
+                self.assertEqual(status, 200)
+                self.assertIn(b"SSOplayer", body)
+                self.assertEqual(http(forum_port, "/account", cookie=active_cookie)[0], 303)
+
+                # A site-wide logout also rotates SSO authorization and
+                # invalidates the new forum session, without deleting accounts.
+                status, _, body = http(web_port, "/account", cookie=web_cookie)
+                self.assertEqual(status, 200)
+                status, _, _ = http(web_port, "/account/sessions/logout-all", method="POST",
+                    cookie=web_cookie, data={"csrf": csrf_from(body)})
+                self.assertEqual(status, 303)
+                status, headers, _ = http(forum_port, "/account", cookie=reauthorized_cookie)
+                self.assertEqual(status, 303)
+                self.assertTrue(headers["Location"].startswith("/login"))
+
             finally:
                 for proc in processes:
                     if proc.poll() is None:
