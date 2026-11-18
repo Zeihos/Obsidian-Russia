@@ -129,6 +129,23 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:pass
         token=cookie['obforum_session'].value if 'obforum_session' in cookie else ''
         sess=db.session_for(c,token)
+        if sess and sess['user_id'] is not None:
+            link=c.execute(
+                'SELECT provider_sub,auth_version FROM sso_accounts WHERE user_id=?',
+                (sess['user_id'],)
+            ).fetchone()
+            if link:
+                # SSO users are checked against the identity provider on each
+                # request. When unavailable, deny access without deleting data.
+                current=sso.session_version(link['provider_sub'])
+                if current is None:
+                    sess=None
+                elif current!=link['auth_version']:
+                    c.execute('DELETE FROM sessions WHERE user_id=?',(sess['user_id'],))
+                    c.execute('UPDATE sso_accounts SET auth_version=? WHERE provider_sub=?',
+                              (current,link['provider_sub']))
+                    db.audit(c,sess['user_id'],'sso_revoke_sessions','site_security_version')
+                    sess=None
         if sess:return sess,None
         if create:
             token=db.create_session(c)
