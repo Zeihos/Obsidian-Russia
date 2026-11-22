@@ -13,6 +13,7 @@ from db import init_db, connect, now, new_token, get_session, hash_password, che
 import views as v
 import sso
 import recovery
+import email_verify
 
 ROOT=Path(__file__).resolve().parent
 STATIC=(ROOT/'static').resolve()
@@ -295,7 +296,7 @@ class Handler(BaseHTTPRequestHandler):
                 email_key=hashlib.sha256(email.encode('utf-8')).hexdigest()
                 if not allowed(email_key,'forgot-email',3,3600):
                     return self.redirect('/forgot?message=sent')
-                target=c.execute('SELECT id,email FROM users WHERE email=?',(email,)).fetchone()
+                target=c.execute('SELECT id,email FROM users WHERE email=? AND email_verified_at IS NOT NULL',(email,)).fetchone()
                 if target:
                     token=recovery.issue(c,target['id'])
                     c.commit()  # Token must exist before mail delivery starts.
