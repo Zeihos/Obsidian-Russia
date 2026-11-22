@@ -75,6 +75,30 @@ class LegacySSOMigrationTest(unittest.TestCase):
                 ).fetchone()
                 self.assertEqual(row,("17",42,0))
 
+    def test_existing_sso_login_states_survive_purpose_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"forum"
+            path.mkdir()
+            dbfile=path/"forum.sqlite3"
+            with closing(sqlite3.connect(dbfile)) as conn, conn:
+                conn.execute(
+                    "CREATE TABLE sso_states("
+                    "state_hash TEXT PRIMARY KEY,session_hash TEXT NOT NULL,expires_at TEXT NOT NULL)"
+                )
+                conn.execute(
+                    "INSERT INTO sso_states(state_hash,session_hash,expires_at) "
+                    "VALUES('legacy-state','legacy-session','2099-01-01T00:00:00+00:00')"
+                )
+            env=os.environ.copy()
+            env["OBFORUM_DATA_DIR"]=str(path)
+            upgrade("Форум",env)
+            upgrade("Форум",env)
+            with closing(sqlite3.connect(dbfile)) as conn:
+                row=conn.execute(
+                    "SELECT state_hash,session_hash,purpose,user_id FROM sso_states"
+                ).fetchone()
+                self.assertEqual(row,("legacy-state","legacy-session","login",None))
+
 
 if __name__=="__main__":
     unittest.main()
