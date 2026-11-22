@@ -51,7 +51,7 @@ def fake_mail(address,token,base,purpose):
     if Path(os.environ["OBSIDIAN_MAIL_FAIL_TEST"]).exists():
         raise RuntimeError("Simulated failed delivery")
     with open(os.environ["OBSIDIAN_MAILBOX_TEST"],"a",encoding="utf-8") as out:
-        out.write(purpose+"|"+address+"|"+token+"\\n")
+        out.write(purpose+"|"+address+"|"+token+"\n")
 email_verify.send_email=fake_mail
 server.main()
 """
