@@ -12,6 +12,7 @@ from html import escape
 from db import init_db, connect, now, new_token, get_session, hash_password, check_password, setting, settings
 import views as v
 import sso
+import recovery
 
 ROOT=Path(__file__).resolve().parent
 STATIC=(ROOT/'static').resolve()
@@ -64,7 +65,10 @@ class Handler(BaseHTTPRequestHandler):
         return remote
 
     def log_message(self,fmt,*args):
-        logging.info('%s %s', self.address_string(),fmt%args)
+        # Recovery URLs contain credentials: never record them in logs.
+        log_line=fmt%args
+        log_line=re.sub(r'(?i)(token=)[^&\\s]+',r'\\1[REDACTED]',log_line)
+        logging.info('%s %s', self.address_string(),log_line)
 
     def response(self, body, status=200, content='text/html; charset=utf-8', cookie=None, extra=None):
         # Commit before sending redirects; the browser may follow them immediately.
@@ -75,7 +79,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type',content)
         self.send_header('Content-Length',str(len(body)))
         self.send_header('X-Content-Type-Options','nosniff')
-        self.send_header('Referrer-Policy','strict-origin-when-cross-origin')
+        self.send_header('Referrer-Policy','no-referrer' if urlsplit(self.path).path=='/reset' else 'strict-origin-when-cross-origin')
         self.send_header('X-Frame-Options','DENY')
         self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
         self.send_header('Content-Security-Policy',"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
@@ -166,7 +170,7 @@ class Handler(BaseHTTPRequestHandler):
             config=settings(c)
             statuses={'saved':'Изменения сохранены.','created':'Запись создана.','deleted':'Запись удалена.',
                       'ticket':'Обращение отправлено.','password':'Пароль обновлён.','bye':'Вы вышли из аккаунта.','sessions':'Другие сеансы сайта завершены.',
-                      'welcome':'Добро пожаловать!','error':'Не удалось выполнить действие. Проверь введённые данные.',
+                      'welcome':'Добро пожаловать!','reset':'Пароль изменён. Войди с новым паролем.','error':'Не удалось выполнить действие. Проверь введённые данные.',
                       'limit':'Слишком много попыток. Повтори позже.','login':'Войди в аккаунт, чтобы продолжить.'}
             message=statuses.get(qs.get('message',[''])[0],'')
             status=200
@@ -183,7 +187,22 @@ class Handler(BaseHTTPRequestHandler):
                 code=sso.issue_code(c,user['user_id'])
                 callback=sso.CALLBACK+'?'+urlencode({'state':state,'code':code})
                 return self.response(b'',303,'text/plain; charset=utf-8',new_cookie,{'Location':callback})
-            if path=='/':title='Главная';body=v.home(c,config)
+            if path=='/forgot':
+                if qs.get('message',[''])[0]=='sent':
+                    notice='Если адрес зарегистрирован и почта настроена, письмо с инструкцией будет отправлено.'
+                elif qs.get('message',[''])[0]=='invalid':
+                    notice='Ссылка недействительна или устарела. Запроси новую.'
+                else:
+                    notice=''
+                title='Восстановление доступа'
+                body=v.recovery_request_page(csrf,recovery.enabled(BASE_URL),notice)
+            elif path=='/reset':
+                token=qs.get('token',[''])[0]
+                valid=recovery.exists(c,token)
+                title='Новый пароль'
+                body=v.recovery_reset_page(csrf,token,valid)
+                if not valid:status=400
+            elif path=='/':title='Главная';body=v.home(c,config)
             elif path=='/about':title='О проекте';body=v.about_page(config)
             elif path=='/play':title='Начать играть';body=v.play_page(config)
             elif path=='/servers':title='Серверы';body=v.servers_page(c)
@@ -265,6 +284,40 @@ class Handler(BaseHTTPRequestHandler):
                 raise BadRequest('Срок действия формы истёк. Обнови страницу и попробуй снова.')
             user=session if session['user_id'] else None
             client=self.client_ip()
+            if path=='/forgot':
+                if not recovery.enabled(BASE_URL):
+                    return self.error_page(503,'ВОССТАНОВЛЕНИЕ НЕДОСТУПНО','Почта для восстановления не настроена.')
+                if not allowed(client,'forgot',5,3600):
+                    return self.redirect('/forgot?message=sent')
+                email=f.get('email','').strip().lower()
+                if len(email)>120 or not recovery.EMAIL_PATTERN.fullmatch(email):
+                    return self.redirect('/forgot?message=sent')
+                email_key=hashlib.sha256(email.encode('utf-8')).hexdigest()
+                if not allowed(email_key,'forgot-email',3,3600):
+                    return self.redirect('/forgot?message=sent')
+                target=c.execute('SELECT id,email FROM users WHERE email=?',(email,)).fetchone()
+                if target:
+                    token=recovery.issue(c,target['id'])
+                    c.commit()  # Token must exist before mail delivery starts.
+                    try:
+                        recovery.send_email(target['email'],token,BASE_URL)
+                    except Exception:
+                        # Don't reveal account existence or mail delivery status.
+                        logging.warning('Password recovery delivery failed; check SMTP configuration')
+                        recovery.cancel(c,token)
+                        c.commit()
+                return self.redirect('/forgot?message=sent')
+            if path=='/reset':
+                if not allowed(client,'reset',12,3600):
+                    return self.error_page(429,'СЛИШКОМ МНОГО ПОПЫТОК','Повтори позднее.')
+                pw=f.get('password','')
+                confirm=f.get('confirm','')
+                token=f.get('token','')
+                if pw!=confirm or not 10<=len(pw)<=128:
+                    return self.error_page(400,'ПРОВЕРЬ ПАРОЛЬ','Пароль должен содержать 10–128 символов, оба поля должны совпадать.')
+                if not recovery.redeem(c,token,pw):
+                    return self.redirect('/forgot?message=invalid')
+                return self.redirect('/login?message=reset','')
             if path=='/login':
                 if not allowed(client,'login',12,900):return self.redirect('/login?message=limit')
                 ident=f.get('identity','').strip(); pw=f.get('password','')
