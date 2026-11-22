@@ -37,6 +37,7 @@ def init_db():
            email TEXT NOT NULL UNIQUE COLLATE NOCASE,
            password_hash TEXT NOT NULL,
            auth_version INTEGER NOT NULL DEFAULT 0,
+           email_verified_at TEXT DEFAULT NULL,
            role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
            created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sessions (
@@ -79,6 +80,15 @@ def init_db():
             user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
             expires_at TEXT NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS email_tokens (
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            pending_email TEXT NOT NULL,
+            purpose TEXT NOT NULL CHECK(purpose IN ('verify','change')),
+            expires_at TEXT NOT NULL,
+            UNIQUE(user_id, purpose)
+         );
+         CREATE INDEX IF NOT EXISTS idx_email_tokens_expiry ON email_tokens(expires_at);
          CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
          CREATE INDEX IF NOT EXISTS idx_sso_codes_expiry ON sso_codes(expires_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
@@ -87,6 +97,9 @@ def init_db():
         user_columns={r['name'] for r in c.execute('PRAGMA table_info(users)')}
         if 'auth_version' not in user_columns:
             c.execute('ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0')
+        # Existing addresses are not automatically trusted: ownership was never proven.
+        if 'email_verified_at' not in user_columns:
+            c.execute('ALTER TABLE users ADD COLUMN email_verified_at TEXT DEFAULT NULL')
         defaults = {
           'vk':'https://vk.ru/obsidian_brussia',
           'telegram':'https://t.me/obsidian_brussia',
@@ -133,6 +146,6 @@ def new_token(c, user_id=None):
 def get_session(c, token):
     if not token or len(token)>256: return None
     return c.execute('''SELECT s.token_hash,s.user_id,s.csrf,s.expires_at,
-        u.username,u.role,u.email,u.created_at FROM sessions s LEFT JOIN users u ON u.id=s.user_id
+        u.username,u.role,u.email,u.email_verified_at,u.created_at FROM sessions s LEFT JOIN users u ON u.id=s.user_id
         WHERE s.token_hash=? AND s.expires_at>?''',(
         hashlib.sha256(token.encode()).hexdigest(),now())).fetchone()

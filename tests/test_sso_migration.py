@@ -50,6 +50,10 @@ class LegacySSOMigrationTest(unittest.TestCase):
                     "SELECT id,username,password_hash,auth_version FROM users WHERE id=17"
                 ).fetchone()
                 self.assertEqual(row,(17,"OldSiteUser","legacy-hash",0))
+                # No legacy email should be automatically treated as verified.
+                self.assertIsNone(conn.execute(
+                    "SELECT email_verified_at FROM users WHERE id=17"
+                ).fetchone()[0])
 
     def test_forum_legacy_link_survives_auth_version_migration(self):
         with tempfile.TemporaryDirectory() as tmp:

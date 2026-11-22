@@ -153,7 +153,7 @@ def rules_page():
 
 def privacy_page(settings):
     support=E(settings.get('support_email',''))
-    return head('ДОКУМЕНТЫ','ПОЛИТИКА <span>КОНФИДЕНЦИАЛЬНОСТИ</span>','Информация об обработке данных пользователей веб-портала.')+f'''<section class="section compact"><div class="shell legal"><p><strong>Примечание владельцу:</strong> перед публичным запуском проверь эту политику на соответствие законам страны регистрации оператора и дополни сведениями о юридическом лице, контактах и сроках хранения данных.</p><h2>Какие данные хранятся</h2><p>При регистрации сохраняются логин, адрес электронной почты, хеш пароля и дата создания аккаунта. Для входа используются файлы cookie с идентификатором сессии. В обращениях поддержки хранятся тема, текст и статус обращения.</p><h2>Для чего используются данные</h2><p>Для входа в личный кабинет, управления заявками поддержки и защиты учётных записей. Сайт не запрашивает и не хранит банковские реквизиты.</p><h2>Где хранятся данные</h2><p>Информация сохраняется в базе SQLite на сервере владельца сайта. Администратор сервера контролирует хранение и резервные копии.</p><h2>Как связаться</h2><p>Для запроса доступа или удаления аккаунта воспользуйтесь <a href="/contact">поддержкой</a>{(' или напишите на '+support) if support else ''}.</p></div></section>'''
+    return head('ДОКУМЕНТЫ','ПОЛИТИКА <span>КОНФИДЕНЦИАЛЬНОСТИ</span>','Информация об обработке данных пользователей веб-портала.')+f'''<section class="section compact"><div class="shell legal"><p><strong>Примечание владельцу:</strong> перед публичным запуском проверь эту политику на соответствие законам страны регистрации оператора и дополни сведениями о юридическом лице, контактах и сроках хранения данных.</p><h2>Какие данные хранятся</h2><p>При регистрации сохраняются логин, адрес электронной почты, статус подтверждения email, хеш пароля и дата создания аккаунта. Для подтверждения адреса и его смены временно сохраняются хеши одноразовых токенов и адреса ожидающие подтверждения. Для входа используются файлы cookie с идентификатором сессии. В обращениях поддержки хранятся тема, текст и статус обращения.</p><h2>Для чего используются данные</h2><p>Для входа в личный кабинет, управления заявками поддержки и защиты учётных записей. Сайт не запрашивает и не хранит банковские реквизиты.</p><h2>Где хранятся данные</h2><p>Информация сохраняется в базе SQLite на сервере владельца сайта. Администратор сервера контролирует хранение и резервные копии.</p><h2>Как связаться</h2><p>Для запроса доступа или удаления аккаунта воспользуйтесь <a href="/contact">поддержкой</a>{(' или напишите на '+support) if support else ''}.</p></div></section>'''
 
 def auth_page(kind,csrf,err='',next_url=''):
     signup=(kind=='register')
@@ -194,12 +194,45 @@ def recovery_reset_page(csrf, token, valid):
         <div class="shell"><div class="panel dashboard-panel">{content}</div></div></section>'''
 
 
-def account_page(c,user,csrf):
+def email_confirmation_page(csrf,token,proof,needs_login=False):
+    if not proof:
+        body='<p>Ссылка недействительна или просрочена.</p><a class="btn btn-primary" href="/account">Личный кабинет</a>'
+    elif needs_login:
+        body='<p>Для смены email сначала войди в тот же аккаунт сайта, в котором запрашивал смену.</p><a class="btn btn-primary" href="/login">Войти</a>'
+    else:
+        action=('Подтвердить новый email' if proof['purpose']=='change'
+                else 'Подтвердить email')
+        body=f'''<p>Адрес: <strong>{E(proof['pending_email'])}</strong>. Если запрос был отправлен не тобой, не подтверждай его.</p>
+        <form method="post" action="/verify-email" class="form-grid">{csrf_field(csrf)}
+        <input type="hidden" name="token" value="{E(token)}">
+        <button class="btn btn-primary" type="submit">{action}</button></form>'''
+    return head('ПОЧТА','ПОДТВЕРЖДЕНИЕ <span>EMAIL</span>')+f'''<section class="section compact">
+    <div class="shell"><div class="panel dashboard-panel">{body}</div></div></section>'''
+
+
+def account_page(c,user,csrf,email_enabled=False):
     tickets=c.execute('SELECT * FROM tickets WHERE user_id=? ORDER BY id DESC LIMIT 10',(user['user_id'],)).fetchall()
     active_sessions=c.execute('SELECT COUNT(*) FROM sessions WHERE user_id=? AND expires_at>?',(user['user_id'],now())).fetchone()[0]
     session_controls=f'''<div class="panel dashboard-panel"><h2>{icon('key',22)} БЕЗОПАСНОСТЬ СЕАНСОВ</h2><p>Активные входы на сайт: <strong>{active_sessions}</strong>. Если заходил с другого устройства, заверши старые сеансы.</p><div class="profile-actions"><form method="post" action="/account/sessions/close-others">{csrf_field(csrf)}<button class="btn btn-outline" type="submit">Завершить другие сеансы</button></form><form method="post" action="/account/sessions/logout-all">{csrf_field(csrf)}<button class="btn btn-outline" type="submit">Выйти на всех устройствах</button></form></div><p class="small-note">Действие относится только к сайту. Сеансы форума и Wiki управляются отдельно.</p></div>'''
+    verified=bool(user['email_verified_at'])
+    address_notice=('<p class="small-note">Адрес подтверждён. Восстановление пароля по email доступно при настройке SMTP.</p>'
+                    if verified else '<p class="small-note">Адрес ещё не подтверждён. Восстановление пароля по email отключено до подтверждения.</p>')
+    verify_form=(f'''<form class="form-grid" method="post" action="/account/email/resend">{csrf_field(csrf)}
+        <button class="btn btn-outline" type="submit">Отправить письмо для подтверждения</button></form>'''
+        if email_enabled and not verified else '')
+    change_form=(f'''<form class="form-grid" method="post" action="/account/email/change">{csrf_field(csrf)}
+        <label>Новый email<input type="email" name="email" required maxlength="120" autocomplete="email"></label>
+        <label>Текущий пароль сайта<input type="password" name="password" required maxlength="128" autocomplete="current-password"></label>
+        <button class="btn btn-outline" type="submit">Подтвердить смену по почте</button></form>'''
+        if email_enabled else '')
+    unavailable=('<p class="small-note">Отправка писем не настроена: подтвердить или изменить адрес пока нельзя.</p>'
+                 if not email_enabled else '')
+    email_controls=f'''<div class="panel dashboard-panel"><h2>{icon('mail',22)} БЕЗОПАСНОСТЬ EMAIL</h2>
+        <p>Текущий адрес: <strong>{E(user['email'])}</strong></p>{address_notice}
+        {verify_form}{change_form}{unavailable}
+        <p class="small-note">Смена email применяется только после подтверждения нового адреса и требует текущий пароль сайта. При успешной смене старые сеансы закрываются.</p></div>'''
     trows=''.join(f'<div class="ticket-row"><span>#{t["id"]} · {E(t["subject"])}</span>{badge("Открыто" if t["status"]=="open" else "Закрыто","live" if t["status"]=="open" else "muted")}</div>' for t in tickets) or '<p class="muted">Пока нет обращений.</p>'
-    return head('ЛИЧНЫЙ КАБИНЕТ',f'ПРИВЕТ, <span>{E(user["username"])}</span>','Управляй веб-аккаунтом и обращениями в поддержку.')+f'''<section class="section compact"><div class="shell dashboard-grid"><div class="panel profile-panel"><div class="profile-avatar">{icon('user',32)}</div><h2>{E(user['username'])}</h2><p>{E(user['email'])}</p>{badge('Администратор' if user['role']=='admin' else 'Участник сообщества','live')}<div class="profile-meta"><span>Дата регистрации</span><strong>{date(user['created_at'])}</strong></div><p class="small-note">Это аккаунт сайта. Данные игрового персонажа будут доступны после подключения игрового сервера.</p><div class="profile-actions">{f'<a class="btn btn-outline" href="/admin">{icon("gear",17)} Админ-панель</a>' if user['role']=='admin' else ''}<form method="post" action="/logout">{csrf_field(csrf)}<button class="btn btn-outline" type="submit">{icon('logout',17)} Выйти</button></form></div></div><div class="dashboard-content"><div class="panel dashboard-panel"><h2>{icon('ticket',22)} МОИ ОБРАЩЕНИЯ</h2>{trows}<a class="text-link" href="/contact">Новое обращение {icon('arrow',17)}</a></div><div class="panel dashboard-panel"><h2>{icon('key',22)} ИЗМЕНИТЬ ПАРОЛЬ</h2><form method="post" action="/account/password" class="form-grid">{csrf_field(csrf)}<label>Текущий пароль<input type="password" name="old_password" required autocomplete="current-password"></label><label>Новый пароль (от 10 символов)<input type="password" name="new_password" required minlength="10" maxlength="128" autocomplete="new-password"></label><button class="btn btn-outline" type="submit">Сохранить новый пароль</button></form></div>{session_controls}</div></div></section>'''
+    return head('ЛИЧНЫЙ КАБИНЕТ',f'ПРИВЕТ, <span>{E(user["username"])}</span>','Управляй веб-аккаунтом и обращениями в поддержку.')+f'''<section class="section compact"><div class="shell dashboard-grid"><div class="panel profile-panel"><div class="profile-avatar">{icon('user',32)}</div><h2>{E(user['username'])}</h2><p>{E(user['email'])}</p>{badge('Администратор' if user['role']=='admin' else 'Участник сообщества','live')}<div class="profile-meta"><span>Дата регистрации</span><strong>{date(user['created_at'])}</strong></div><p class="small-note">Это аккаунт сайта. Данные игрового персонажа будут доступны после подключения игрового сервера.</p><div class="profile-actions">{f'<a class="btn btn-outline" href="/admin">{icon("gear",17)} Админ-панель</a>' if user['role']=='admin' else ''}<form method="post" action="/logout">{csrf_field(csrf)}<button class="btn btn-outline" type="submit">{icon('logout',17)} Выйти</button></form></div></div><div class="dashboard-content"><div class="panel dashboard-panel"><h2>{icon('ticket',22)} МОИ ОБРАЩЕНИЯ</h2>{trows}<a class="text-link" href="/contact">Новое обращение {icon('arrow',17)}</a></div><div class="panel dashboard-panel"><h2>{icon('key',22)} ИЗМЕНИТЬ ПАРОЛЬ</h2><form method="post" action="/account/password" class="form-grid">{csrf_field(csrf)}<label>Текущий пароль<input type="password" name="old_password" required autocomplete="current-password"></label><label>Новый пароль (от 10 символов)<input type="password" name="new_password" required minlength="10" maxlength="128" autocomplete="new-password"></label><button class="btn btn-outline" type="submit">Сохранить новый пароль</button></form></div>{email_controls}{session_controls}</div></div></section>'''
 
 def contact_page(user,csrf,err=''):
     if not user:return head('ПОДДЕРЖКА','ЕСТЬ <span>ВОПРОС?</span>','Для обращения в поддержку войди в личный кабинет.')+f'<section class="section compact"><div class="shell"><div class="panel contact-box"><h2>СВЯЖИСЬ С НАМИ</h2><p>Обращения доступны зарегистрированным пользователям. Так мы сможем сохранить историю запросов.</p><a class="btn btn-primary" href="/login">Войти в аккаунт {icon("arrow",18)}</a></div></div></section>'

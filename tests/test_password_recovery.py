@@ -36,13 +36,18 @@ class PasswordRecoveryTests(unittest.TestCase):
                 "OBSIDIAN_SMTP_FROM":"notice@example.invalid",
                 "OBSIDIAN_SMTP_SECURITY":"ssl",
                 "OBSIDIAN_TEST_MAIL_FILE":str(mailbox),
+                "OBSIDIAN_TEST_VERIFY_FILE":str(Path(tmp) / "verify.txt"),
                 "OBSIDIAN_TEST_FAIL_FLAG":str(failflag),
             })
             launcher = """
 import os
 from pathlib import Path
 import recovery
+import email_verify
 import server
+def fake_verify(to_address, token, base_url, purpose):
+    Path(os.environ["OBSIDIAN_TEST_VERIFY_FILE"]).write_text(token, encoding="ascii")
+email_verify.send_email = fake_verify
 def fake_email(to_address, token, base_url):
     if Path(os.environ["OBSIDIAN_TEST_FAIL_FLAG"]).exists():
         raise RuntimeError("Simulated SMTP connection failure")
@@ -79,6 +84,19 @@ server.main()
                 self.assertEqual(status,303)
                 original_cookie=cookie_of(headers)
                 self.assertEqual(http(p,"/account",cookie=original_cookie)[0],200)
+                # Recovery is intentionally disabled for unverified addresses.
+                verify_token=(Path(tmp) / "verify.txt").read_text(encoding="ascii")
+                status,headers,body=http(p,"/verify-email?token="+verify_token)
+                self.assertEqual(status,200)
+                verify_guest=cookie_of(headers)
+                status,_,_=http(p,"/verify-email","POST",{
+                    "csrf":csrf_from(body),"token":verify_token,
+                },verify_guest)
+                self.assertEqual(status,303)
+                with closing(sqlite3.connect(dbdir/"obsidian.sqlite3")) as c:
+                    self.assertIsNotNone(c.execute(
+                        "SELECT email_verified_at FROM users WHERE username='RecoveryUser'"
+                    ).fetchone()[0])
                 with closing(sqlite3.connect(dbdir/"obsidian.sqlite3")) as c:
                     uid=c.execute("SELECT id FROM users WHERE username='RecoveryUser'").fetchone()[0]
                     c.execute("INSERT INTO sso_codes(code_hash,client_id,user_id,expires_at) "
