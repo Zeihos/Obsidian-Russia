@@ -167,8 +167,12 @@ server.main()
                 self.assertEqual(status,200)
                 self.assertIn("сначала войди".encode("utf-8"),html)
                 guest=cookie_of(headers)
+                # No confirmation form is shown to an unrelated session.
+                self.assertNotIn(b'name="token"',html)
+                login_status,_,login_html=http(p,"/login",cookie=guest)
+                self.assertEqual(login_status,200)
                 self.assertEqual(http(p,"/verify-email","POST",{
-                    "csrf":csrf_from(html),"token":change_token,
+                    "csrf":csrf_from(login_html),"token":change_token,
                 },guest)[0],303)
                 with closing(sqlite3.connect(dbdir/"obsidian.sqlite3")) as c:
                     self.assertEqual(c.execute("SELECT email FROM users WHERE username='FirstMember'").fetchone()[0],
