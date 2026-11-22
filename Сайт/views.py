@@ -162,7 +162,37 @@ def auth_page(kind,csrf,err='',next_url=''):
     errbox=f'<div class="form-error" role="alert">{E(err)}</div>' if err else ''
     next_hidden=f'<input type="hidden" name="next" value="{E(next_url)}">' if next_url else ''
     next_query=('?next='+quote(next_url,safe='')) if next_url else ''
-    return f'''<section class="auth-section"><div class="auth-visual"><img src="/static/avatar.jpg" alt="OBSIDIAN RUSSIA"><div>ТВОЯ ИСТОРИЯ<br><span>НАЧИНАЕТСЯ ЗДЕСЬ.</span></div></div><div class="auth-side"><div class="form-panel"><div class="kicker">ЛИЧНЫЙ КАБИНЕТ</div><h1>{title}</h1><p>{'Создай веб-аккаунт для новостей и обращений.' if signup else 'Войди в свой веб-аккаунт OBSIDIAN RUSSIA.'}</p>{errbox}<form method="post" action="/{'register' if signup else 'login'}" class="form-grid">{csrf_field(csrf)}{next_hidden}{fields}<label>Пароль<input type="password" name="password" minlength="{'10' if signup else '1'}" maxlength="128" required autocomplete="{'new-password' if signup else 'current-password'}" placeholder="••••••••••••"></label>{'<label>Подтверждение пароля<input type="password" name="password2" minlength="10" maxlength="128" required autocomplete="new-password" placeholder="••••••••••••"></label>' if signup else ''}<button class="btn btn-primary" type="submit">{'Создать аккаунт' if signup else 'Войти'} {icon('arrow',18)}</button></form><div class="form-footer">{f'Уже есть аккаунт? <a href="/login{next_query}">Войти</a>' if signup else f'Нет аккаунта? <a href="/register{next_query}">Зарегистрироваться</a>'}</div><p class="small-note">Веб-аккаунт пока не связан с игровым персонажем. Пароль должен быть уникальным.</p></div></div></section>'''
+    return f'''<section class="auth-section"><div class="auth-visual"><img src="/static/avatar.jpg" alt="OBSIDIAN RUSSIA"><div>ТВОЯ ИСТОРИЯ<br><span>НАЧИНАЕТСЯ ЗДЕСЬ.</span></div></div><div class="auth-side"><div class="form-panel"><div class="kicker">ЛИЧНЫЙ КАБИНЕТ</div><h1>{title}</h1><p>{'Создай веб-аккаунт для новостей и обращений.' if signup else 'Войди в свой веб-аккаунт OBSIDIAN RUSSIA.'}</p>{errbox}<form method="post" action="/{'register' if signup else 'login'}" class="form-grid">{csrf_field(csrf)}{next_hidden}{fields}<label>Пароль<input type="password" name="password" minlength="{'10' if signup else '1'}" maxlength="128" required autocomplete="{'new-password' if signup else 'current-password'}" placeholder="••••••••••••"></label>{'<label>Подтверждение пароля<input type="password" name="password2" minlength="10" maxlength="128" required autocomplete="new-password" placeholder="••••••••••••"></label>' if signup else ''}<button class="btn btn-primary" type="submit">{'Создать аккаунт' if signup else 'Войти'} {icon('arrow',18)}</button></form><div class="form-footer">{f'Уже есть аккаунт? <a href="/login{next_query}">Войти</a>' if signup else f'Нет аккаунта? <a href="/register{next_query}">Зарегистрироваться</a>'}</div>{'<p class="small-note"><a href="/forgot">Забыли пароль?</a></p>' if not signup else ''}<p class="small-note">Веб-аккаунт пока не связан с игровым персонажем. Пароль должен быть уникальным.</p></div></div></section>'''
+
+def recovery_request_page(csrf, enabled=False, notice=''):
+    info=('<p class="small-note">Если адрес зарегистрирован, мы отправим письмо с одноразовой ссылкой. Проверь также папку «Спам».</p>'
+          if enabled else '<p class="small-note">Восстановление по email пока не настроено администратором. Для помощи обратись в поддержку проекта.</p>')
+    form=(f'''<form class="form-grid" method="post" action="/forgot">{csrf_field(csrf)}
+        <label>Адрес электронной почты<input type="email" name="email" maxlength="120"
+        required autocomplete="email" placeholder="you@example.com"></label>
+        <button class="btn btn-primary" type="submit">Отправить ссылку</button></form>''' if enabled else '')
+    flash=f'<div class="panel dashboard-panel" role="status"><p>{E(notice)}</p></div>' if notice else ''
+    return head('ВОССТАНОВЛЕНИЕ','ВОССТАНОВИТЬ <span>ДОСТУП</span>',
+                'Смена пароля веб-аккаунта OBSIDIAN RUSSIA.')+f'''<section class="section compact">
+        <div class="shell"><div class="panel dashboard-panel">{info}{flash}{form}
+        <p class="small-note"><a href="/login">Вернуться ко входу</a></p></div></div></section>'''
+
+
+def recovery_reset_page(csrf, token, valid):
+    if not valid:
+        content='<p>Ссылка недействительна или срок её действия истёк. Запроси новую.</p><a class="btn btn-primary" href="/forgot">Новая ссылка</a>'
+    else:
+        content=f'''<p>Придумай новый пароль. Ссылка действует один раз.</p>
+        <form class="form-grid" method="post" action="/reset">{csrf_field(csrf)}
+        <input type="hidden" name="token" value="{E(token)}">
+        <label>Новый пароль<input type="password" name="password" minlength="10" maxlength="128"
+        required autocomplete="new-password"></label>
+        <label>Повтори новый пароль<input type="password" name="confirm" minlength="10" maxlength="128"
+        required autocomplete="new-password"></label>
+        <button class="btn btn-primary" type="submit">Сменить пароль</button></form>'''
+    return head('НОВЫЙ ПАРОЛЬ','СОЗДАТЬ <span>НОВЫЙ ПАРОЛЬ</span>')+f'''<section class="section compact">
+        <div class="shell"><div class="panel dashboard-panel">{content}</div></div></section>'''
+
 
 def account_page(c,user,csrf):
     tickets=c.execute('SELECT * FROM tickets WHERE user_id=? ORDER BY id DESC LIMIT 10',(user['user_id'],)).fetchall()
