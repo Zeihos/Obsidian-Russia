@@ -95,12 +95,13 @@ def send_notice(address, event):
 
 def notify_address(address, event):
     """Never log recipient addresses or credentials; never propagate SMTP errors."""
-    if not address or event not in NOTIFIABLE:
+    if not address or event not in NOTIFIABLE or not recovery.smtp_settings():
         return False
     try:
         send_notice(address,event)
         return True
-    except (smtplib.SMTPException, OSError, TimeoutError, ValueError, Exception):
+    except Exception:
+        # Network or SMTP failure never makes a password/email change fail.
         logging.warning("Account security notification failed (%s); check mail service",event)
         return False
 
