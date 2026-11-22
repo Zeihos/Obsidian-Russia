@@ -65,6 +65,13 @@ def init_db():
            subject TEXT NOT NULL, message TEXT NOT NULL,
            status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
            created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS account_security_events (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           event TEXT NOT NULL,
+           created_at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_security_events_user
+           ON account_security_events(user_id,id);
         CREATE TABLE IF NOT EXISTS settings (
            key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_news_pub ON news(published,created_at);
