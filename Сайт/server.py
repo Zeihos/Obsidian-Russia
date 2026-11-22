@@ -14,6 +14,7 @@ import views as v
 import sso
 import recovery
 import email_verify
+import security_events
 
 ROOT=Path(__file__).resolve().parent
 STATIC=(ROOT/'static').resolve()
@@ -301,11 +302,21 @@ class Handler(BaseHTTPRequestHandler):
             user=session if session['user_id'] else None
             client=self.client_ip()
             if path=='/verify-email':
+                proof=email_verify.get(c,f.get('token',''))
+                previous=(c.execute('SELECT email,email_verified_at FROM users WHERE id=?',
+                                    (proof['user_id'],)).fetchone()
+                          if proof and proof['purpose']=='change' else None)
                 result=email_verify.confirm(c,f.get('token',''),
                             user['user_id'] if user else None)
                 if result=='changed':
+                    security_events.record(c,proof['user_id'],'email_changed')
+                    c.commit()  # Persist the change before best-effort notification.
+                    if previous and previous['email_verified_at']:
+                        security_events.notify_address(previous['email'],'email_changed')
                     return self.redirect('/login?message=email_changed','')
                 if result=='verified':
+                    if proof:
+                        security_events.record(c,proof['user_id'],'email_verified')
                     return self.redirect('/account?message=email_verified' if user else '/login?message=email_verified')
                 if result=='login_required':
                     return self.redirect('/login?message=login')
@@ -341,8 +352,12 @@ class Handler(BaseHTTPRequestHandler):
                 token=f.get('token','')
                 if pw!=confirm or not 10<=len(pw)<=128:
                     return self.error_page(400,'ПРОВЕРЬ ПАРОЛЬ','Пароль должен содержать 10–128 символов, оба поля должны совпадать.')
-                if not recovery.redeem(c,token,pw):
+                recovered_user_id=recovery.redeem(c,token,pw)
+                if not recovered_user_id:
                     return self.redirect('/forgot?message=invalid')
+                security_events.record(c,recovered_user_id,'password_reset')
+                c.commit()
+                security_events.notify_verified(c,recovered_user_id,'password_reset')
                 return self.redirect('/login?message=reset','')
             if path=='/login':
                 if not allowed(client,'login',12,900):return self.redirect('/login?message=limit')
@@ -426,12 +441,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect('/account?message=email_sent')
             if path=='/account/sessions/close-others':
                 c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(user['user_id'],session['token_hash']))
+                security_events.record(c,user['user_id'],'sessions_closed')
                 return self.redirect('/account?message=sessions')
             if path=='/account/sessions/logout-all':
                 # Invalidate linked forum sessions as well as website sessions.
                 c.execute('UPDATE users SET auth_version=auth_version+1 WHERE id=?',(user['user_id'],))
                 c.execute('DELETE FROM sso_codes WHERE user_id=?',(user['user_id'],))
                 c.execute('DELETE FROM sessions WHERE user_id=?',(user['user_id'],))
+                security_events.record(c,user['user_id'],'sessions_closed_all')
                 return self.redirect('/?message=bye','')
             if path=='/account/password':
                 if not allowed(client,'password',8,900):return self.redirect('/account?message=limit')
@@ -442,6 +459,9 @@ class Handler(BaseHTTPRequestHandler):
                 c.execute('UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?',(hash_password(new_pw),user['user_id']))
                 c.execute('DELETE FROM sso_codes WHERE user_id=?',(user['user_id'],))
                 c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(user['user_id'],session['token_hash']))
+                security_events.record(c,user['user_id'],'password_changed')
+                c.commit()
+                security_events.notify_verified(c,user['user_id'],'password_changed')
                 return self.redirect('/account?message=password')
             if path=='/contact':
                 if not allowed(client,'ticket',5,3600):return self.redirect('/contact?message=limit')
