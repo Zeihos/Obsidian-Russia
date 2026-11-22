@@ -414,9 +414,6 @@ class Handler(BaseHTTPRequestHandler):
                     email_verify.cancel(c,token)
                     c.commit()
                     return self.redirect('/account?message=email_error')
-                security_events.record(c,user['user_id'],'email_change_requested')
-                c.commit()
-                security_events.notify_verified(c,user['user_id'],'email_change_requested')
                 return self.redirect('/account?message=email_sent')
             if path=='/account/email/change':
                 if not recovery.enabled(BASE_URL):
@@ -441,6 +438,9 @@ class Handler(BaseHTTPRequestHandler):
                     email_verify.cancel(c,token)
                     c.commit()
                     return self.redirect('/account?message=email_error')
+                security_events.record(c,user['user_id'],'email_change_requested')
+                c.commit()
+                security_events.notify_verified(c,user['user_id'],'email_change_requested')
                 return self.redirect('/account?message=email_sent')
             if path=='/account/sessions/close-others':
                 c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(user['user_id'],session['token_hash']))
