@@ -114,7 +114,7 @@ def redeem(c, token, new_password):
               (hash_password(new_password), user_id))
     c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
     c.execute("DELETE FROM sso_codes WHERE user_id=?", (user_id,))
-    return True
+    return user_id
 
 
 def send_email(to_address, token, base_url):
