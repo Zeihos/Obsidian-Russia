@@ -80,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type',content)
         self.send_header('Content-Length',str(len(body)))
         self.send_header('X-Content-Type-Options','nosniff')
-        self.send_header('Referrer-Policy','no-referrer' if urlsplit(self.path).path=='/reset' else 'strict-origin-when-cross-origin')
+        self.send_header('Referrer-Policy','no-referrer' if urlsplit(self.path).path in ('/reset','/verify-email') else 'strict-origin-when-cross-origin')
         self.send_header('X-Frame-Options','DENY')
         self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
         self.send_header('Content-Security-Policy',"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
@@ -172,7 +172,14 @@ class Handler(BaseHTTPRequestHandler):
             statuses={'saved':'Изменения сохранены.','created':'Запись создана.','deleted':'Запись удалена.',
                       'ticket':'Обращение отправлено.','password':'Пароль обновлён.','bye':'Вы вышли из аккаунта.','sessions':'Другие сеансы сайта завершены.',
                       'welcome':'Добро пожаловать!','reset':'Пароль изменён. Войди с новым паролем.','error':'Не удалось выполнить действие. Проверь введённые данные.',
-                      'limit':'Слишком много попыток. Повтори позже.','login':'Войди в аккаунт, чтобы продолжить.'}
+                      'limit':'Слишком много попыток. Повтори позже.','login':'Войди в аккаунт, чтобы продолжить.',
+                       'email_sent':'Проверь почту: если письмо было доставлено, подтверди адрес по ссылке.',
+                       'email_verified':'Email подтверждён.',
+                       'email_changed':'Адрес email изменён. Войди заново.',
+                       'email_error':'Письмо отправить не удалось. Попробуй позже.',
+                       'email_unavailable':'Отправка писем не настроена.',
+                       'email_invalid':'Не удалось изменить email. Проверь данные или используй другой адрес.',
+                       'email_password':'Не удалось подтвердить пароль сайта.'}
             message=statuses.get(qs.get('message',[''])[0],'')
             status=200
             if path=='/sso/authorize':
@@ -188,7 +195,15 @@ class Handler(BaseHTTPRequestHandler):
                 code=sso.issue_code(c,user['user_id'])
                 callback=sso.CALLBACK+'?'+urlencode({'state':state,'code':code})
                 return self.response(b'',303,'text/plain; charset=utf-8',new_cookie,{'Location':callback})
-            if path=='/forgot':
+            if path=='/verify-email':
+                token=qs.get('token',[''])[0]
+                proof=email_verify.get(c,token)
+                needs_login=bool(proof and proof['purpose']=='change' and
+                                 (not user or user['user_id']!=proof['user_id']))
+                title='Подтверждение email'
+                body=v.email_confirmation_page(csrf,token,proof,needs_login)
+                if not proof:status=400
+            elif path=='/forgot':
                 if qs.get('message',[''])[0]=='sent':
                     notice='Если адрес зарегистрирован и почта настроена, письмо с инструкцией будет отправлено.'
                 elif qs.get('message',[''])[0]=='invalid':
@@ -226,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
                 title='Регистрация';body=v.auth_page('register',csrf,next_url=ret)
             elif path=='/account':
                 if not user:return self.redirect('/login?message=login',new_cookie)
-                title='Личный кабинет';body=v.account_page(c,user,csrf)
+                title='Личный кабинет';body=v.account_page(c,user,csrf,recovery.enabled(BASE_URL))
                 if sso.enabled():
                     forum_login=sso.CALLBACK.removesuffix('/sso/callback')+'/sso/login'
                     body+='<section class="section compact"><div class="shell"><div class="panel dashboard-panel"><h2>ФОРУМ OBSIDIAN RUSSIA</h2><p>Войти на форум можно через этот аккаунт сайта, без повторного ввода пароля.</p><a class="btn btn-primary" href="'+v.E(forum_login)+'">Войти на форум</a></div></div></section>'
@@ -285,6 +300,16 @@ class Handler(BaseHTTPRequestHandler):
                 raise BadRequest('Срок действия формы истёк. Обнови страницу и попробуй снова.')
             user=session if session['user_id'] else None
             client=self.client_ip()
+            if path=='/verify-email':
+                result=email_verify.confirm(c,f.get('token',''),
+                            user['user_id'] if user else None)
+                if result=='changed':
+                    return self.redirect('/login?message=email_changed','')
+                if result=='verified':
+                    return self.redirect('/account?message=email_verified' if user else '/login?message=email_verified')
+                if result=='login_required':
+                    return self.redirect('/login?message=login')
+                return self.redirect('/account?message=email_invalid' if user else '/login?message=error')
             if path=='/forgot':
                 if not recovery.enabled(BASE_URL):
                     return self.error_page(503,'ВОССТАНОВЛЕНИЕ НЕДОСТУПНО','Почта для восстановления не настроена.')
@@ -341,11 +366,64 @@ class Handler(BaseHTTPRequestHandler):
                 cur=c.execute('INSERT INTO users(username,email,password_hash,role,created_at) VALUES(?,?,?,?,?)',(uname,email,hash_password(pw),'user',now()))
                 c.execute('DELETE FROM sessions WHERE token_hash=?',(session['token_hash'],))
                 token=new_token(c,cur.lastrowid)
-                return self.redirect(sso.login_return(f.get('next','')) or '/account?message=welcome',token)
+                notice='welcome'
+                if recovery.enabled(BASE_URL):
+                    email_token=email_verify.issue(c,cur.lastrowid,email,'verify')
+                    c.commit()
+                    try:
+                        email_verify.send_email(email,email_token,BASE_URL,'verify')
+                        notice='email_sent'
+                    except Exception:
+                        logging.warning('Registration verification delivery failed; check SMTP configuration')
+                        email_verify.cancel(c,email_token)
+                        c.commit()
+                        notice='email_error'
+                return self.redirect(sso.login_return(f.get('next','')) or '/account?message='+notice,token)
             if path=='/logout':
                 c.execute('DELETE FROM sessions WHERE token_hash=?',(session['token_hash'],))
                 return self.redirect('/?message=bye','')
             if not user:return self.redirect('/login?message=login')
+            if path=='/account/email/resend':
+                if not recovery.enabled(BASE_URL):
+                    return self.redirect('/account?message=email_unavailable')
+                if user['email_verified_at']:
+                    return self.redirect('/account')
+                if not allowed(client,'verify-mail',6,3600) or not allowed(str(user['user_id']),'verify-user',3,3600):
+                    return self.redirect('/account?message=limit')
+                token=email_verify.issue(c,user['user_id'],user['email'],'verify')
+                c.commit()
+                try:
+                    email_verify.send_email(user['email'],token,BASE_URL,'verify')
+                except Exception:
+                    logging.warning('Email verification delivery failed; check SMTP configuration')
+                    email_verify.cancel(c,token)
+                    c.commit()
+                    return self.redirect('/account?message=email_error')
+                return self.redirect('/account?message=email_sent')
+            if path=='/account/email/change':
+                if not recovery.enabled(BASE_URL):
+                    return self.redirect('/account?message=email_unavailable')
+                if not allowed(client,'change-mail',6,3600) or not allowed(str(user['user_id']),'change-user',3,3600):
+                    return self.redirect('/account?message=limit')
+                address=f.get('email','').strip().lower()
+                password=f.get('password','')
+                if not email_verify.valid_email(address) or address.casefold()==user['email'].casefold():
+                    return self.redirect('/account?message=email_invalid')
+                row=c.execute('SELECT password_hash FROM users WHERE id=?',(user['user_id'],)).fetchone()
+                if len(password)>128 or not row or not check_password(password,row['password_hash']):
+                    return self.redirect('/account?message=email_password')
+                if c.execute('SELECT 1 FROM users WHERE email=?',(address,)).fetchone():
+                    return self.redirect('/account?message=email_invalid')
+                token=email_verify.issue(c,user['user_id'],address,'change')
+                c.commit()
+                try:
+                    email_verify.send_email(address,token,BASE_URL,'change')
+                except Exception:
+                    logging.warning('Email change delivery failed; check SMTP configuration')
+                    email_verify.cancel(c,token)
+                    c.commit()
+                    return self.redirect('/account?message=email_error')
+                return self.redirect('/account?message=email_sent')
             if path=='/account/sessions/close-others':
                 c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(user['user_id'],session['token_hash']))
                 return self.redirect('/account?message=sessions')
