@@ -43,14 +43,16 @@ def valid_state(value):
     return bool(re.fullmatch(r"[A-Za-z0-9_-]{32,128}", value))
 
 
-def start(c, session_hash):
+def start(c, session_hash, purpose="login", user_id=None):
+    if purpose not in ("login", "link") or (purpose == "link" and not user_id):
+        raise ValueError("Invalid SSO flow")
     state = secrets.token_urlsafe(36)
     digest = hashlib.sha256(state.encode("ascii")).hexdigest()
     deadline = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds")
     c.execute("DELETE FROM sso_states WHERE expires_at<=?", (db.now(),))
     c.execute(
-        "INSERT INTO sso_states(state_hash,session_hash,expires_at) VALUES(?,?,?)",
-        (digest, session_hash, deadline),
+        "INSERT INTO sso_states(state_hash,session_hash,expires_at,purpose,user_id) VALUES(?,?,?,?,?)",
+        (digest, session_hash, deadline, purpose, user_id if purpose == "link" else None),
     )
     url = ISSUER.rstrip("/") + "/sso/authorize?" + urlencode({"client": CLIENT, "state": state})
     return url
@@ -58,13 +60,14 @@ def start(c, session_hash):
 
 def consume_state(c, state, session_hash):
     if not valid_state(state):
-        return False
+        return None
     digest = hashlib.sha256(state.encode("ascii")).hexdigest()
     row = c.execute(
-        "DELETE FROM sso_states WHERE state_hash=? AND session_hash=? AND expires_at>? RETURNING state_hash",
+        "DELETE FROM sso_states WHERE state_hash=? AND session_hash=? AND expires_at>? "
+        "RETURNING purpose,user_id",
         (digest, session_hash, db.now()),
     ).fetchone()
-    return row is not None
+    return row
 
 
 def _version(value):
@@ -155,3 +158,24 @@ def forum_user(c, sub, display_name, version):
         db.audit(c, user_id, "sso_signup", "obsidian-website")
         return user_id
     return None
+
+def link_existing(c, sub, version, user_id):
+    """Bind an already-owned forum member account to a verified site identity.
+
+    Never infer ownership from email/username, never merge separate profiles,
+    and never elevate administrative roles through website SSO.
+    """
+    member=c.execute('SELECT id,role,banned FROM users WHERE id=?',(user_id,)).fetchone()
+    if not member or member['banned'] or member['role']!='member':
+        return False
+    if c.execute('SELECT 1 FROM sso_accounts WHERE provider_sub=? OR user_id=?',
+                 (sub,user_id)).fetchone():
+        return False
+    c.execute('INSERT INTO sso_accounts(provider_sub,user_id,auth_version) VALUES(?,?,?)',
+              (sub,user_id,version))
+    # Site becomes the only sign-in authority for this linked account.
+    # The old forum password cannot be used after a successful link.
+    c.execute('UPDATE users SET password_hash=? WHERE id=?',
+              (db.hash_password(secrets.token_urlsafe(48)),user_id))
+    db.audit(c,user_id,'sso_link_existing','website-account')
+    return True
