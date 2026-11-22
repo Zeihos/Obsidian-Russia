@@ -74,7 +74,13 @@ def init_db():
            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
            expires_at TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_sso_codes_expiry ON sso_codes(expires_at);
+        CREATE TABLE IF NOT EXISTS password_resets (
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            expires_at TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
+         CREATE INDEX IF NOT EXISTS idx_sso_codes_expiry ON sso_codes(expires_at);
         CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
         ''')
         # Upgrade in-place: never recreate or overwrite existing user data.
