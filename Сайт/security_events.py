@@ -23,6 +23,7 @@ EVENT_LABELS = {
 }
 NOTIFIABLE = frozenset({
     "password_changed", "password_reset", "email_changed",
+    "email_change_requested",
 })
 
 
@@ -69,6 +70,7 @@ def send_notice(address, event):
         "password_changed": "В твоём аккаунте OBSIDIAN RUSSIA изменён пароль.",
         "password_reset": "Пароль аккаунта OBSIDIAN RUSSIA восстановлен через подтверждённую почту.",
         "email_changed": "В аккаунте OBSIDIAN RUSSIA изменён адрес электронной почты.",
+        "email_change_requested": "Для аккаунта OBSIDIAN RUSSIA запрошена смена адреса электронной почты. Сам адрес пока не изменён.",
     }[event]
     message.set_content(
         description+"\n\nЕсли действие выполнено тобой, ничего делать не нужно.\n"
