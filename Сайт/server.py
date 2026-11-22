@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,fmt,*args):
         # Recovery URLs contain credentials: never record them in logs.
         log_line=fmt%args
-        log_line=re.sub(r'(?i)(token=)[^&\\s]+',r'\\1[REDACTED]',log_line)
+        log_line=re.sub(r'(?i)token=[A-Za-z0-9_-]+','token=[REDACTED]',log_line)
         logging.info('%s %s', self.address_string(),log_line)
 
     def response(self, body, status=200, content='text/html; charset=utf-8', cookie=None, extra=None):
