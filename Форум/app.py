@@ -38,6 +38,8 @@ RATE=defaultdict(deque)
 
 MESSAGES={
  'welcome':'Добро пожаловать на форум OBSIDIAN RUSSIA!',
+ 'linked':'Аккаунт сайта успешно привязан. Все прежние темы и ответы сохранены.',
+ 'link_password':'Для привязки введи правильный пароль текущего форумного аккаунта.',
  'registered':'Аккаунт создан. Добро пожаловать!',
  'bye':'Вы вышли из аккаунта.',
  'saved':'Изменения успешно сохранены.',
@@ -215,12 +217,24 @@ class Handler(BaseHTTPRequestHandler):
                     return self.error_page(404,'Единый вход пока не настроен.')
                 state=args.get('state',[''])[0]
                 code=args.get('code',[''])[0]
-                if not sess or not sso.consume_state(c,state,sess['token_hash']):
+                claim=(sso.consume_state(c,state,sess['token_hash']) if sess else None)
+                if not claim:
                     return self.error_page(400,'Неверный или просроченный запрос авторизации.')
                 c.commit()  # Consume state before contacting the website.
                 identity=sso.exchange(code)
                 if not identity:
                     return self.error_page(401,'Не удалось подтвердить единый вход. Попробуй снова.')
+                if claim['purpose']=='link':
+                    # Must still own exactly the original password-proven forum session.
+                    if not user or user['user_id']!=claim['user_id'] or user['role']!='member':
+                        return self.error_page(403,'Сеанс подтверждения аккаунта недоступен.')
+                    if not sso.link_existing(c,identity[0],identity[2],user['user_id']):
+                        return self.error_page(409,'Этот аккаунт сайта или форума уже связан с другим профилем. Автоматическое объединение не выполняется.')
+                    c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',
+                              (user['user_id'],sess['token_hash']))
+                    return self.redirect('/account?message=linked')
+                if claim['purpose']!='login':
+                    return self.error_page(400,'Неверный тип запроса авторизации.')
                 user_id=sso.forum_user(c,*identity)
                 if not user_id:
                     return self.error_page(403,'Учётная запись недоступна.')
@@ -297,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
                 title='Регистрация';body=v.auth_form('register',csrf)
             elif path=='/account':
                 if not user:return self.redirect('/login?message=login',token)
-                title='Мой профиль';body=v.account(c,user,csrf)
+                title='Мой профиль';body=v.account(c,user,csrf,sso_enabled=sso.enabled())
             elif path=='/admin':
                 if not user or user['role']=='member':return self.error_page(403,'Доступ только для команды.')
                 tab=args.get('tab',['overview'])[0]
@@ -374,6 +388,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect('/?message=bye','')
             if not user:return self.redirect('/login?message=login')
             uid=user['user_id'];staff=user['role'] in ('admin','moderator');admin=user['role']=='admin'
+            if path=='/sso/link/start':
+                if not sso.enabled():
+                    return self.error_page(404,'Единый вход не настроен.')
+                if user['role']!='member' or c.execute(
+                    'SELECT 1 FROM sso_accounts WHERE user_id=?',(uid,)
+                ).fetchone():
+                    return self.error_page(403,'Привязка для этой учётной записи недоступна.')
+                if not ratelimit(ip,'sso_link',8,900):
+                    return self.redirect('/account?message=rate')
+                password=f.get('password','')
+                user_row=c.execute('SELECT password_hash FROM users WHERE id=?',(uid,)).fetchone()
+                if len(password)>128 or not user_row or not db.verify_password(password,user_row['password_hash']):
+                    return self.redirect('/account?message=link_password')
+                link=sso.start(c,s['token_hash'],purpose='link',user_id=uid)
+                return self.respond(b'',303,'text/plain; charset=utf-8',None,{'Location':link})
             if path=='/account/sessions/close-others':
                 c.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',(uid,s['token_hash']))
                 db.audit(c,uid,'close_other_sessions',uid)
