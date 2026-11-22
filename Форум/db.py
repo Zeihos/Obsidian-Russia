@@ -95,7 +95,8 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_posts_thread ON posts(thread_id,deleted,created_at);
         CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status,created_at);
         CREATE TABLE IF NOT EXISTS sso_states (
-         state_hash TEXT PRIMARY KEY, session_hash TEXT NOT NULL, expires_at TEXT NOT NULL);
+         state_hash TEXT PRIMARY KEY, session_hash TEXT NOT NULL, expires_at TEXT NOT NULL,
+         purpose TEXT NOT NULL DEFAULT 'login', user_id INTEGER REFERENCES users(id));
         CREATE TABLE IF NOT EXISTS sso_accounts (
          provider_sub TEXT PRIMARY KEY, user_id INTEGER NOT NULL UNIQUE
            REFERENCES users(id) ON DELETE CASCADE,
@@ -104,6 +105,12 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
         CREATE INDEX IF NOT EXISTS idx_follows_thread ON follows(thread_id);
         ''')
+        # Upgrade existing authorization requests in place; old login states remain valid.
+        state_columns={r['name'] for r in c.execute('PRAGMA table_info(sso_states)')}
+        if 'purpose' not in state_columns:
+            c.execute("ALTER TABLE sso_states ADD COLUMN purpose TEXT NOT NULL DEFAULT 'login'")
+        if 'user_id' not in state_columns:
+            c.execute('ALTER TABLE sso_states ADD COLUMN user_id INTEGER REFERENCES users(id)')
         # Existing SSO mappings are retained across schema upgrades.
         sso_columns={r['name'] for r in c.execute('PRAGMA table_info(sso_accounts)')}
         if 'auth_version' not in sso_columns:
