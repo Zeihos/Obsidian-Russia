@@ -106,6 +106,10 @@ def redeem(c, token, new_password):
     if not record:
         return False
     user_id = record["user_id"]
+    # Defence in depth: old accounts are unverified after migration.
+    verified=c.execute('SELECT email_verified_at FROM users WHERE id=?',(user_id,)).fetchone()
+    if not verified or not verified['email_verified_at']:
+        return False
     c.execute("UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?",
               (hash_password(new_password), user_id))
     c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
